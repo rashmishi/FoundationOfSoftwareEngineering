@@ -1,0 +1,8 @@
+# Convenience only: runs the same single image.
+services:
+  notes-kanban:
+    build: .
+    image: notes-kanban:latest
+    ports:
+      - "8080:80"
+    restart: unless-stopped

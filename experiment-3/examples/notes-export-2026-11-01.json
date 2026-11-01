@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "exportedAt": "2026-11-01T15:29:35.550Z",
+  "columns": [
+    {
+      "id": "28603050-6752-4080-b6b8-a31437d37c50",
+      "name": "To do"
+    },
+    {
+      "id": "2993c476-867d-41f7-875c-8fcc7a6b4a38",
+      "name": "In progress"
+    },
+    {
+      "id": "79aebf3f-dde2-4297-a521-3d4bcb421d02",
+      "name": "Done"
+    },
+    {
+      "id": "f39df8f6-095d-4a59-bef7-fe438cb1e460",
+      "name": "Column 1"
+    },
+    {
+      "id": "7ac9590c-d098-4677-ab4d-63f4c7252c51",
+      "name": "Column 2"
+    },
+    {
+      "id": "7ac9590c-d098-4677-ab4d-63f4c7252c52",
+      "name": "Column 3"
+    }
+  ],
+  "notes": [
+    {
+      "id": "d0ee3580-ed74-44ed-9346-d3d811a18bef",
+      "title": "Note",
+      "description": "",
+      "tags": [
+        "tag"
+      ],
+      "columnId": "79aebf3f-dde2-4297-a521-3d4bcb421d02",
+      "createdAt": "2026-11-01T15:19:42.581Z",
+      "updatedAt": "2026-11-01T15:19:42.581Z",
+      "movedAt": "2026-11-01T15:19:47.288Z"
+    },
+    {
+      "id": "28353b1e-305b-4e6c-bfb3-b0e7133a3d78",
+      "title": "Note 2",
+      "description": "description",
+      "tags": [
+        "tag",
+        "tag 2"
+      ],
+      "columnId": "28603050-6752-4080-b6b8-a31437d37c50",
+      "createdAt": "2026-11-01T15:29:17.772Z",
+      "updatedAt": "2026-11-01T15:29:17.772Z",
+      "movedAt": "2026-11-01T15:29:19.730Z"
+    },
+    {
+      "id": "28353b1e-305b-4e6c-bfb3-b0e7133a3d79",
+      "title": "Note 3",
+      "description": "description",
+      "tags": [
+        "tag",
+        "tag 2",
+        "tag 3"
+      ],
+      "columnId": "28603050-6752-4080-b6b8-a31437d37c50",
+      "createdAt": "2026-11-01T15:29:17.772Z",
+      "updatedAt": "2026-11-01T15:29:17.772Z",
+      "movedAt": "2026-11-01T15:29:19.730Z"
+    }
+  ]
+}
