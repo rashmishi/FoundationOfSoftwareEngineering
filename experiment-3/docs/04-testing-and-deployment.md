@@ -1,317 +1,404 @@
-# Testing & Deployment — Notes & Kanban Web Application
+# Testing & Deployment Instructions — Notes & Kanban Board
 
-| Item | Value |
-|---|---|
-| Document | 04 — Testing & Deployment instructions |
-| Version | 1.1 (addresses accessibility review of v1.0) |
-| Date | 2026-10-31 |
-| Inputs | 01 Requirements v1.2, 02 Architecture & Design v1.3, implementation (step 3, accepted) |
-| Status | Accepted by accessibility review (2026-10-31) |
+| Field | Value |
+|--|--|
+| Document | 04 — Testing & Deployment |
+| Version | 2.0 |
+| Date | 2026-11-02 |
+| Inputs | Documents [01](01-requirements-specification.md), [02](02-architecture-and-design.md), [03](03-implementation.md) (all accepted) |
+| Status | Accepted by accessibility review, round 2 (see section 9) |
+
+This document explains how to test the application (automated and by hand, including with assistive technology) and how to deploy it with a single Docker image on a local or remote machine. All commands run from the `experiment-3` folder unless a step says otherwise.
+
+## Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Automated tests](#2-automated-tests)
+3. [Mapping of tests to acceptance criteria](#3-mapping-of-tests-to-acceptance-criteria)
+4. [Manual accessibility test plan](#4-manual-accessibility-test-plan)
+5. [Deployment with Docker](#5-deployment-with-docker)
+6. [Operating the deployment](#6-operating-the-deployment)
+7. [Troubleshooting](#7-troubleshooting)
+8. [Release checklist](#8-release-checklist)
+9. [Review record](#9-review-record)
 
 ## 1. Prerequisites
 
-| Purpose | Software | Tested version |
-|---|---|---|
-| Development and tests | Node.js and npm | Node 22, npm 10 or later |
-| Container build and run | Docker Engine (or Docker Desktop) | 24 or later |
-| Manual accessibility tests | A desktop browser plus a screen reader (see section 4) | Current releases |
+| Purpose | Needed | Check with |
+|--|--|--|
+| Run tests and develop | Node.js 22 or later, npm 10 or later | `node -v`, `npm -v` |
+| Browser end-to-end tests | Playwright's Chromium (installed once, see 2.3) | `npx playwright --version` |
+| Build and run the image | Docker 20.10 or later (any engine that supports multi-stage builds) | `docker -v` |
+| Manual screen reader tests | NVDA 2024+ with Firefox or Chrome on Windows; VoiceOver with Safari on macOS and iOS; optionally Orca with Firefox on Linux | — |
 
-All commands below are run from the project root folder (`experiment-3/`).
-
-## 2. Running the application for development
-
-1. Install dependencies:
-
-   ```bash
-   npm ci
-   ```
-
-2. Start the development server:
-
-   ```bash
-   npm run dev
-   ```
-
-3. Open `http://localhost:5173` in a browser.
-
-To build and preview the production bundle without Docker:
+Install the project's dependencies once:
 
 ```bash
-npm run build
+npm ci
+```
+
+## 2. Automated tests
+
+### 2.1 Summary
+
+| Suite | Command | What it covers | Expected result |
+|--|--|--|--|
+| Unit, contrast, component, regression | `npm test` | Reducer, validation, import/export, dates, tags, filters, toast queue; colour contrast of every token pair in both themes; each user story through the UI in jsdom, keyboard paths, focus placement, live-region messages, axe-core scans | 146 tests pass |
+| Type check | `npm run typecheck` | Strict TypeScript over all source and tests | No errors |
+| End-to-end (Chromium) | `npm run test:e2e` | Real pointer drag and drop, reordering, drop outside, reload persistence, export download, import valid and invalid files, keyboard-only flow, axe with contrast in light and dark themes, rendered toolbar and focus-ring contrast, menu not clipped, 320 px reflow, forced colours, reduced motion, text-spacing override, menu/tooltip/dialog keyboard behaviour, toast pause and header Undo | 19 tests pass, 1 skipped (the deployment test below) |
+| End-to-end against a running container | `BASE_URL=http://localhost:8080 npm run test:e2e` | The same 19 tests against the production image, plus `deployment.spec.ts`: `/healthz` returns `ok`, and the page and assets send the Content-Security-Policy (including `style-src 'self' 'unsafe-inline'`, needed for WCAG 1.4.12), `X-Content-Type-Options`, `Referrer-Policy` and cache headers | 20 tests pass |
+
+Each test prints its name and a tick (✓) or cross (✘), and the run ends with a line such as "146 passed" or "1 failed". The result never depends on colour in the terminal.
+
+### 2.2 Unit and component tests
+
+```bash
+npm test
+```
+
+Use `npm run test:watch` while developing. Test files are in `src/test/`:
+
+| File | Content |
+|--|--|
+| `model.test.ts` | Pure logic: reducer moves and deletes, tag parsing, date validation and formatting, field limits and messages, import/export round trip and every rejection message, filter matching, toast eviction and queue rules. |
+| `contrast.test.ts` | Parses `src/styles/tokens.css` and checks 46 colour pairs per theme: text at least 4.5:1, interface parts at least 3:1. |
+| `app.test.tsx` | The five user stories end to end in jsdom, plus menus, search, Undo shortcut, F8, dialog live regions and axe-core scans of the main states. |
+| `regressions.test.tsx` | Focus after controls that remove themselves, search-announcement timing, keyboard-move target visibility. |
+
+### 2.3 End-to-end tests
+
+Install the browser once, then run the suite. Playwright builds the app and starts a preview server on port 4173 by itself. On Linux, `--with-deps` also installs the system libraries Chromium needs (it may ask for an administrator password):
+
+```bash
+npx playwright install --with-deps chromium
 ```
 
 ```bash
-npm run preview
+npm run test:e2e
 ```
 
-The preview server prints its address (by default `http://localhost:4173`).
-
-## 3. Automated tests
-
-### 3.1 How to run
-
-| Task | Command | Expected result |
-|---|---|---|
-| Type check | `npx tsc -b` | No output, exit code 0. |
-| All tests, once | `npx vitest run` | "Test Files 2 passed", "Tests 44 passed". |
-| Tests in watch mode | `npm test` | Re-runs tests when files change. |
-
-Run them in this order:
+When a test fails, Playwright saves a trace. Open it with the command printed in the failure message, for example:
 
 ```bash
-npx tsc -b
+npx playwright show-trace test-results/<test-folder>/trace.zip
 ```
+
+### 2.4 Testing the production image
+
+Build and start the image as in section 5.1, then run the end-to-end suite against it. This also runs `e2e/deployment.spec.ts`, which checks the health check and the security headers:
 
 ```bash
-npx vitest run
+BASE_URL=http://localhost:8080 npm run test:e2e
 ```
 
-The Docker build (section 5) also runs the test suite and stops if any test fails.
+The Docker build also runs `npm test` inside the build stage, so an image is only produced when the unit and component tests pass. Pass `--build-arg SKIP_TESTS=true` only when you have already run them.
 
-### 3.2 What the tests cover
+## 3. Mapping of tests to acceptance criteria
 
-Tests live in `src/test/`. Component tests use Testing Library and find elements by **role and accessible name** (for example `getByRole('button', { name: 'Delete note Buy milk' })`), the same way assistive technology finds them. A test therefore fails if a control loses its name or role.
+| User story / requirement | Acceptance criterion | Automated test(s) |
+|--|--|--|
+| Create notes (FR-1) | Note with title is created; title, description, tags saved | `app.test.tsx` › creates a note with title, description and tags… |
+| | Not saved without a title; error shown | `app.test.tsx` › does not save without a title…; `model.test.ts` › validation |
+| | Appears in list with confirmation | `app.test.tsx` › creates a note… (toast text + live region) |
+| | Survives reload | `app.test.tsx` › keeps notes after a reload |
+| Manage list (FR-2) | All notes shown with title, description, tags | `app.test.tsx` › creates a note…; `stories.spec.ts` (all) |
+| | Edit saves and displays | `app.test.tsx` › edits a note in a dialog…; › renames a note inline… |
+| | Delete removes; gone after reload | `app.test.tsx` › deletes after confirmation… |
+| Export / import (FR-4) | Export is valid JSON with all notes | `app.test.tsx` › exports valid JSON…; `stories.spec.ts` › export downloads valid JSON… |
+| | Exported file imports with data preserved; survives reload | `app.test.tsx` › imports an exported file…; `model.test.ts` › round-trips… |
+| | Invalid file rejected with error | `app.test.tsx` › rejects an invalid file…; `model.test.ts` › rejects invalid file #0–6 |
+| Drag to board (FR-5) | Dropped note appears in column; visual feedback | `stories.spec.ts` › drag a note from the list onto a column… |
+| | Assignment persists after reload | `stories.spec.ts` › drag a note… (reload); `app.test.tsx` › moves a note… with the Move dialog… |
+| | Drop outside keeps original column | `stories.spec.ts` › drag between columns… dropping outside… |
+| Columns (FR-6) | New column added | `app.test.tsx` › adds a column and rejects a duplicate name |
+| | Drag between columns moves the note | `stories.spec.ts` › drag between columns…; `app.test.tsx` › keyboard drag… |
+| Browser access (FR-7.1) | — | `stories.spec.ts`, `accessibility.spec.ts`, `widgets.spec.ts` in Chromium |
+| Docker deployment (FR-7.2, 7.3) | — | Section 5.1 smoke test; section 2.4 |
+| Additional features (FR-8 – FR-21) | Priorities/tags, toasts/Undo, dialogs, reordering, toolbar, inline edit, menus, search, due dates, collapse, motion, dark mode | `app.test.tsx`, `regressions.test.tsx`, `widgets.spec.ts`, `accessibility.spec.ts`, `stories.spec.ts` › reorder… |
+| Accessibility (section 5 of doc 01) | Contrast, structure, keyboard, focus, announcements | `contrast.test.ts`, axe scans in `app.test.tsx` and `accessibility.spec.ts`, plus the manual plan in section 4 |
 
-| File | Area | Examples of checks | Requirements |
-|---|---|---|---|
-| `model.test.ts` | Tags | Trimming, empty entries removed, case-insensitive duplicates removed | FR-1.2 |
-| `model.test.ts` | Reducer | Add/update/delete; a note is in only one column; unknown columns ignored; duplicate column names rejected | FR-1, FR-2, FR-6.3 |
-| `model.test.ts` | Drop logic | Same column, another column, outside every column | FR-5.4, FR-5.5 |
-| `model.test.ts` | Import/export | Export → import round trip keeps every field; 8 kinds of invalid file each give the specified message; missing fields filled in | FR-4 |
-| `model.test.ts` | Storage | Save and load; corrupted data reported | FR-3 |
-| `app.test.tsx` | Create note | Values saved; message shown; empty title rejected with an associated error, `aria-invalid` and focus; entered values kept; note survives a remount (refresh) | US-1, FR-1, FR-3 |
-| `app.test.tsx` | Manage notes | Edit with focus moved in and returned; Escape cancels; delete dialog has initial focus on Cancel; Cancel and Escape return focus; focus after delete; deleted note absent after remount | US-2, FR-2.5, FR-2.7 |
-| `app.test.tsx` | Import/export | Export file content; "Choose a JSON file first."; invalid JSON rejected and data unchanged; confirmed import keeps ids, timestamps and column assignment and survives remount; focus after import | US-3, FR-4 |
-| `app.test.tsx` | Board | Column menu + Move (select alone does nothing); focus after a move from the list and from a board card; keyboard drag pick-up, arrow, drop with announcements and focus; Escape and Tab cancel; add column with validation; columns survive remount | US-4, US-5, FR-5, FR-6 |
-| `app.test.tsx` | Messages | Dismissing a message moves focus to the "Create note" heading, never `<body>` | FR-G.1 |
-| `app.test.tsx` | Storage errors | Corrupted saved data shows a persistent warning with a "Dismiss warning" button | FR-3.3 |
-| `app.test.tsx` | Automated accessibility | axe-core finds no WCAG 2.0/2.1/2.2 A/AA or best-practice violations: empty page; notes + errors + edit form + board card; delete dialog open | AR-* |
+## 4. Manual accessibility test plan
 
-### 3.3 Limits of the automated tests
+Automated tools find only part of the accessibility problems (requirement NFR-9). Run this plan before each release and record the results in the table in section 4.9. Use a clean browser profile, or clear the site's data, so each run starts with an empty board. To start with example data instead, import `examples/notes-export-example.json`.
 
-Automated tools find only part of all WCAG issues. Whether names are meaningful, whether the focus order makes sense and whether the wording is understandable need human judgement, so the manual tests in section 4 are mandatory.
+### 4.1 Keyboard only (no mouse or touchpad)
 
-- **jsdom has no layout or colours.** In the test environment axe-core cannot check colour contrast, so the `color-contrast` rule is switched off there. Contrast is covered by the token table in document 02 (section 5.2) and by the browser check in 3.4.
-- **Announcements are not heard.** The tests check that the correct text is placed in the live regions. They cannot prove that a screen reader speaks it. Manual screen-reader tests (section 4) are required.
-- **Pointer drag-and-drop is not simulated in jsdom.** The drop decision (`resolveDrop`) is unit-tested; the real pointer and touch behaviour is checked in a browser (3.4 and section 4).
-- **The modal `<dialog>` is emulated in jsdom** (`src/test/setup.ts`). Real modal behaviour (inert background, Escape) is checked in a browser.
+Put the mouse away. For each step, check that the focus ring is clearly visible and never hidden behind the header or a notification.
 
-### 3.4 Browser check with axe-core (recommended before each release)
+1. Load the page and press Tab. "Skip to board" appears; press Enter and check that focus is on the "Board" heading. Press Shift+Tab back to the top and repeat with "Skip to notes".
+2. Create a note: Tab to "Title", type a title, fill in Description and Tags, choose a Priority and a Due date, then Tab to **Add note** and press Enter. The note appears in the list, a notification says it was created, and focus is back in "Title".
+3. Press Enter on an empty Title. The error "Enter a title for the note." appears next to the field and focus stays in it.
+4. Edit the note: Tab to its title and press Enter. The "Edit note" dialog opens with focus in Title. Press Tab repeatedly and check that focus stays inside the dialog. Change the title and press "Save changes". Focus returns to the note's title.
+5. Rename the note inline: with focus on its title, press F2, type a new title and press Enter. Press F2 again and Escape to cancel.
+6. Move the note without dragging: Tab to the "Move to…" button, choose a column and a position, and press "Move". Changing the selects must not move the note until "Move" is pressed.
+7. Move the note with keyboard drag: Tab to the note's "Drag" button. The tooltip shows the instructions. Press Space to pick it up, use the Right and Left arrows to change column and Up and Down to change position. The tooltip says where the note will go, and the target column is outlined. Press Space to drop. Repeat and press Escape to cancel; the note returns to where it was.
+8. Open the "More actions" menu with Enter. Use Up, Down, Home and End to move through it, type a letter to jump, and press Escape. Focus returns to the menu button.
+9. Delete the note: press the "Delete" button. In the dialog, focus starts on "Cancel". Press "Delete note". Focus moves to the next note (or the list heading). Press Ctrl+Z (Cmd+Z on Mac) while not in a text field; the note comes back and gets focus.
+10. Press F8 to go to the newest notification. Press Escape to dismiss it; focus returns to where it was.
+11. Add a column, collapse and expand it with its arrow button, rename it, move it left and right, and delete it, all from the keyboard.
+12. Search and filter: type in "Search notes", use the Tag, Priority and Due date selects, press Escape in the search box, and use "Clear filters".
+13. Export notes, then import the file with "Import notes" (Enter opens the file picker). Import a file that is not JSON and check the error message.
+14. Open "Keyboard help" and "Settings" and close them with Escape.
 
-This runs axe-core, including colour contrast, against the real rendered page.
+**Pass:** every step can be completed, no keyboard trap occurs, and focus is always visible and never lost (it never moves back to the top of the page unexpectedly).
 
-1. Start the development server (`npm run dev`) and open `http://localhost:5173`.
-2. Create two notes, move one to a column, and submit the create form once with an empty title so the error state is visible.
-3. Open the browser's developer tools console and run:
+### 4.2 Screen reader
 
-   ```js
-   eval(await (await fetch('/node_modules/axe-core/axe.min.js')).text());
-   (await axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa','best-practice'] } })).violations
-   ```
+Run the plan in 4.1 with each screen reader below. Switch to focus (forms) mode where the step says so.
 
-4. **Expected:** an empty array `[]`.
-5. Repeat with the operating system (or developer tools rendering emulation) set to the light and to the dark colour scheme.
+| Screen reader | Browser | Notes |
+|--|--|--|
+| NVDA | Firefox and Chrome (Windows) | Use NVDA+Space to switch between browse and focus mode. Keyboard drag (4.1 step 7) needs focus mode; "Move to…" works in either mode. |
+| VoiceOver | Safari (macOS) | Use the rotor (VO+U) to check headings and landmarks. |
+| VoiceOver | Safari (iOS) | Use swipe navigation, the rotor and double-tap. Moving notes uses "Move to…". |
+| Orca (optional) | Firefox (Linux) | As NVDA. |
 
-Result recorded on 2026-10-31 (Chrome, light and dark schemes, also with an error shown and a note picked up by keyboard): 0 violations.
+Check that the screen reader:
 
-## 4. Manual test plan
+- reads the page title "Notes & Kanban Board" and lists the landmarks: banner, main, search, and the regions "New note", "Notes", "Board", "Board columns", one region per column named by the column (for example "To do (2 notes)"), and "Notifications" — plus "Saved notes could not be read" when that banner is shown;
+- lists headings in this order: level 1 app name; level 2 New note, Notes, Board; level 3 note titles in the list and column names; level 4 note titles inside columns;
+- reads fields with their label, "required" for Title, the hint, and the error after a failed save;
+- reads icon buttons with their full name, for example "Edit, note “Buy milk”, button", and the menu button as "More actions, note “Buy milk”, menu button, collapsed";
+- reads the collapse button state ("expanded" or "collapsed") and the drag handle as "toggle button, not pressed" with its instructions;
+- announces, without moving focus: "Note “…” created.", "Note “…” deleted.", "“…” moved to In progress, position 1 of 2.", "Import failed. …", "Showing 2 of 5 notes." (once, after a pause in typing);
+- announces messages raised while a dialog is open (for example "Note not saved. 2 fields need attention.");
+- announces each keyboard-drag step ("In progress, position 2 of 3.") and the cancel message.
 
-Run these tests before a release. Write the result (Pass/Fail and a note) in the **Result** column of a copy of the tables. Each test names the requirement it checks.
+**Pass:** all five tasks (create, edit, move to another column, delete, export) can be completed by a screen reader user without sight, and every message above is heard once.
 
-### 4.1 Test environments
+### 4.3 Zoom, reflow and text spacing
 
-| Combination | Why |
-|---|---|
-| Keyboard only, Chrome or Firefox | Keyboard access (AR-O1) |
-| NVDA + Firefox (Windows) | Most common free screen reader |
-| VoiceOver + Safari (macOS) | Safari focus and dialog behaviour differ |
-| Orca + Firefox (Linux) | Linux alternative when no Windows/macOS is available |
-| Windows High Contrast (forced colors) + Edge | AR-P9 forced-colors rules |
-| Phone or tablet browser (touch) | Touch drag (FR-5.8) and target size |
-| Desktop browser at 200 % and 400 % zoom, and a 320 px wide window | Resize and reflow (AR-P6, AR-P10) |
-| Operating-system "reduce motion" setting on | AR-O5 |
+1. Set browser zoom to 200 %. Nothing is cut off or overlapping; all functions still work.
+2. Set browser zoom to 400 % on a 1280 × 1024 screen (the page is then about 320 × 256 CSS px). Columns stack vertically, the page has no horizontal scroll bar and the header is not sticky. Because the window is less than 500 px tall, only one notification is shown at a time.
+3. Small-viewport notifications: still at 400 %, import an invalid file (an error notification that stays), then create a note. The bar "1 more message" with a "Show next" button appears and is reachable with Tab and F8. Press "Show next": the success notification appears and receives focus.
+4. Set the window to 320 px wide but full height (or use the browser's responsive mode). Reflow is the same as step 2; up to three notifications can show, which is expected.
+5. Apply a text-spacing override (line height 1.5, paragraph spacing 2× font size, letter spacing 0.12 em, word spacing 0.16 em), for example with a text-spacing bookmarklet or browser extension. No text in chips, badges, titles, buttons or columns is cut off.
+6. Increase the browser's default font size (not zoom) to 24 px. Text grows and the layout adapts.
+7. Rotate a phone or tablet between portrait and landscape. Both work.
 
-### 4.2 Functional tests (user stories)
+### 4.4 Colour, contrast and themes
 
-| ID | Steps | Expected result | Req. | Result |
-|---|---|---|---|---|
-| M-01 | Enter title "Buy milk", description "2 litres", tags "home, shopping"; activate **Create note**. | Note appears in the Notes list with all three values; message "Note 'Buy milk' created." is shown. | FR-1.4, FR-1.6 | |
-| M-02 | Activate **Create note** with an empty title. | No note is created; "Title is required." appears below the field; the field's border becomes thicker (and red); focus is on Title. | FR-1.5 | |
-| M-03 | Reload the page. | All notes, tags, columns and assignments are still shown. | FR-3.2 | |
-| M-04 | **Edit** a note, change title and tags, **Save**. | List (and board card, if any) shows the new values; message "Note '…' updated.". | FR-2.5, FR-2.6 | |
-| M-05 | **Delete** a note, confirm with **Delete note**; reload. | Note is gone from list and board, also after reload. | FR-2.7, FR-3.2 | |
-| M-06 | **Export notes**. Open the downloaded `notes-export-YYYY-MM-DD.json`. | Valid JSON with `version`, `exportedAt`, `columns` and every note. | FR-4.1, FR-4.2 | |
-| M-07 | Choose the file from M-06, activate **Import**, confirm **Replace notes**; reload. | All notes and assignments are as exported, also after reload; message "Imported N notes.". | FR-4.4, FR-4.6 | |
-| M-08 | Import a text file renamed to `.json` (for example containing `hello`). | Error "Import failed: the file is not valid JSON."; existing notes are unchanged. | FR-4.5 | |
-| M-09 | With the mouse, drag a note's **Drag** handle from the list onto "In progress". | While dragging: the card shows a dashed outline and "Moving…", the column under the pointer shows a dashed border and "Drop here". After dropping: the note is in "In progress". | FR-5.2 – FR-5.4 | |
-| M-10 | Drag a note and release it outside every column (for example on the page header). | The note stays where it was; message "'…' was not moved.". | FR-5.5 | |
-| M-11 | Drag a board card from "To do" to "Done"; reload. | The card is only in "Done", also after reload. | FR-6.3, FR-6.4 | |
-| M-12 | Type "Review" in **Column name**, **Add column**. Then try "review" and an empty name. | "Review" column added; duplicate and empty names show inline errors and add nothing. | FR-6.1, FR-6.2 | |
-| M-13 | On a touch device, drag a note by its handle onto a column; also scroll the page by swiping elsewhere on a card. | Drag works with a finger; swiping on the rest of the card scrolls normally and does not start a drag. | FR-5.8 | |
+1. In Settings, choose Light, then Dark, then "Same as my device", and change the operating-system setting. Each takes effect at once, and a reload shows no flash of the other theme.
+2. In each theme, check with a contrast checker that the faded toolbar icons, tag chips, priority badges, error text, placeholder-like hints and the focus ring are readable (automated checks cover the tokens; this checks the rendered page).
+3. Turn on a grayscale filter (operating-system colour filters, or Chrome DevTools › Rendering › Emulate vision deficiencies › Achromatopsia). Priority (word and bar icon), overdue ("Overdue:" and warning icon), errors (icon and text), drop targets (dashed outline and "Drop here") and the keyboard-move state ("Moving" label) can all still be told apart.
+4. Repeat step 3 with protanopia, deuteranopia and tritanopia emulation.
+5. Turn on Windows High Contrast (Contrast themes) or emulate `forced-colors: active` (DevTools › Rendering). Text, buttons, input borders, card and column edges, focus rings and drop-target outlines remain visible.
 
-### 4.3 Keyboard tests
+### 4.5 Motion and sound
 
-| ID | Steps | Expected result | Req. | Result |
-|---|---|---|---|---|
-| K-01 | Load the page and press Tab once. | "Skip to main content" link appears; Enter moves focus into the main content. | AR-O6 | |
-| K-02 | Tab through the whole page. | Every control is reached in visual order; a clear 3 px outline is always visible; focus is never hidden. | AR-O1, AR-O9, AR-P4 | |
-| K-03 | On a list note, Tab to the **Column** menu, choose "Done" with the arrow keys. | Nothing moves yet. | FR-5.6, AR-U3 | |
-| K-04 | Tab to **Move** and press Enter. | Note appears in "Done"; focus stays on the Move button; message "Moved '…' to Done.". | FR-5.6, FR-5.6a | |
-| K-05 | On a board card, use the Column menu + **Move** to move it to another column. | Focus is on the moved card's Move button in the new column. | FR-5.6a | |
-| K-06 | Focus a **Drag** handle, press Space, press Right Arrow twice, press Enter. | Handle shows a pressed state; the target column shows "Drop here"; the note is dropped there; focus is on the moved card's Drag handle. | FR-5.7 | |
-| K-07 | Pick up a note with Space, then press Escape; repeat, then press Tab. | Escape: nothing moves, focus stays on the handle. Tab: nothing moves, focus goes to the next control normally. | FR-5.7, AR-O2 | |
-| K-08 | Open the delete dialog with the keyboard. Press Tab repeatedly, then Escape. | Focus starts on **Cancel**, stays inside the dialog, and returns to the Delete button after Escape. | FR-2.7, AR-O2 | |
-| K-08a | Import a valid file while notes exist. In the confirmation dialog press Escape; import again and activate **Replace notes**. | Focus starts on **Cancel**; Escape returns focus to **Import**; after confirming, focus moves to the "Notes" heading. | FR-4.4 | |
-| K-09 | Delete the last note in a column. | Focus moves to that column's heading (with a visible outline). | FR-2.7 | |
-| K-10 | Activate **Dismiss message**. | Message is removed; focus moves to the "Create note" heading. | FR-G.1 | |
-| K-11 | Edit a note and press Escape inside the form. | Edit is cancelled; focus returns to the Edit button. | FR-2.5 | |
+1. Turn on the operating system's reduce-motion setting (or emulate `prefers-reduced-motion: reduce`). Cards, dialogs, menus and notifications only fade; dragging has no tilt or drop animation; the notification countdown bar is hidden.
+2. Turn the setting off and turn on Settings › "Reduce motion". The same applies.
+3. Check that nothing flashes and no animation lasts longer than about 0.3 seconds.
+4. Sound is off by default. Turn on Settings › "Sound effects" and check that the sounds are short and quiet, and that each one comes with a visible message.
 
-### 4.4 Screen-reader tests (NVDA, VoiceOver, Orca)
+### 4.6 Time limits
 
-| ID | Steps | Expected result | Req. | Result |
-|---|---|---|---|---|
-| S-01 | List the headings (NVDA: Insert+F7; VoiceOver: rotor). | One level-1 heading; level-2 Create note, Import and export, Notes, Board; level-3 note titles and column names; level-4 card titles. | AR-P3 | |
-| S-02 | List the landmarks. | Banner; main; regions Create note, Import and export, Notes, Board; forms Create note and Add column (plus Edit note … while editing). Screen readers differ in how they list region and form landmarks. | AR-P3 | |
-| S-03 | Create a note. | "Note '…' created." is spoken without focus moving. | FR-1.6, AR-R2 | |
-| S-04 | Submit with an empty title. | Title field is read as "Title (required), invalid, Error: Title is required." (wording varies by reader). | FR-1.5 | |
-| S-05 | Move to a board card's buttons. | Names include the column, e.g. "Edit note Buy milk (Done column), button". | FR-2.4 | |
-| S-06 | Move a note with the **Column** menu and **Move** button (the primary path for screen-reader users). | Result "Moved '…' to …" is spoken; focus is on the moved card's Move button. | FR-5.6 | |
-| S-07 | Focus a **Drag** handle. | Read as "Drag Buy milk, draggable note" (role description), its pressed state, and the instructions. Note how the role description and pressed state are spoken; report confusing output. | FR-5.7, AR-R1 | |
-| S-08 | Switch to focus/forms mode if needed, then use the keyboard drag (Space, arrows, Enter). | Each step is spoken: "Picked up…", "<column>, column N of M.", "Moved '…' to …". In browse mode the reader may capture the arrow keys; the Column menu remains available. | FR-5.7 | |
-| S-09 | Open the delete dialog. | Dialog title and message are read; focus is on Cancel. | FR-2.7 | |
-| S-10 | Import an invalid file. | Error is spoken immediately (alert). | FR-4.5 | |
-| S-11 | Activate a **Drag** handle with a plain click or speech command "click Drag …". | Nothing moves (as documented in the instructions). Use the Column menu instead. | FR-5.6 | |
+1. In Settings, set "Keep notifications for" to 5 seconds. Delete a note. Hover over the notification; it stays while hovered and closes after the pointer leaves.
+2. Delete another note, press F8 to move into the notification and wait; it stays while it has focus.
+3. Let a notification close by itself, then press the header "Undo" button. The delete is undone.
+4. Set "Keep until I close them" and check that notifications stay until dismissed. Error notifications always stay.
 
-### 4.5 Visual, zoom and motion tests
+### 4.7 Pointer and touch
 
-| ID | Steps | Expected result | Req. | Result |
-|---|---|---|---|---|
-| V-01 | Set the window to 320 px wide (or zoom to 400 % at 1280 px). | No horizontal scrolling; board columns are stacked; all controls usable. | AR-P6 | |
-| V-02 | Zoom text to 200 %. | No text is cut off or overlapping. | AR-P10 | |
-| V-03 | Apply a text-spacing bookmarklet (line height 1.5, letter spacing 0.12 em, word spacing 0.16 em, paragraph spacing 2 em). | No text is clipped. | AR-P10 | |
-| V-04 | Switch between light and dark colour schemes. | All text and borders remain clearly readable (see token contrast table in document 02). | AR-P9 | |
-| V-05 | Turn on Windows High Contrast and repeat M-09 and K-02. | Focus outline, dragged-card outline and drop-zone outline remain visible. | AR-P9 | |
-| V-06 | Turn on "reduce motion" and pick up a note with the keyboard while columns are stacked. | Target column scrolls into view instantly; no animations. | AR-O5 | |
-| V-07 | Check every visible message, error and drop-zone state for a non-colour cue. | Each has text and/or an icon or border style change as well as colour. | AR-P8 | |
-| V-08 | On a phone, try the primary buttons (Create note, Add column, Import, Export, Drag handles) and the per-note buttons. | Primary actions are about 44 px tall; no control is smaller than 24 × 24 px (also checked by the axe `target-size` rule in 3.4). | AR-O11 | |
+1. Drag a note from the list onto a column with a mouse: the card lifts and shows "Moving", the column shows a dashed outline and "Drop here". Drop it; it appears in the column.
+2. Drag a card between columns and within a column; drop one outside any column and check that it stays where it was.
+3. On a touch screen, press and hold a card for about a quarter of a second, then drag. A quick tap or scroll does not start a drag.
+4. Check that all buttons are easy to hit: at least 44 by 44 px on touch screens, and at least 32 px for the note toolbar with a mouse.
+5. With voice control (Voice Control on macOS/iOS, or Dragon), say "Click Edit", "Click Move to", "Click Add note". The command works because the visible label is the start of each button's name.
+6. Tooltips: hover over a toolbar icon until its tooltip appears, then move the pointer onto the tooltip; it stays. It stays until you move away or press Escape, and it never covers the button it describes.
+7. Pointer cancellation: press the mouse button on a toolbar button (for example Delete), move the pointer off the button while holding it, then release. The Delete dialog does not open. (Moving more than a few pixels starts a card drag, because the whole card can be dragged; if that happens, release outside any column and the note stays where it was.)
+
+### 4.7a Consistency
+
+1. Check that the header controls are always in the same order and place: Undo, Export notes, Import notes, Keyboard help, Settings — with and without notes, with a dialog closed, and after reloading.
+2. Check that every note card shows the same toolbar order (Edit, Move to…, Delete, More actions) and every menu lists items in the same order.
+
+### 4.8 Content and language
+
+1. Check that the language is detected as English (screen readers use an English voice).
+2. Read every error message and check that it says what is wrong and how to fix it.
+3. Check that no instruction depends on colour, shape or position alone.
+
+### 4.9 Recording results
+
+Copy this table into the release notes and fill it in for each run.
+
+| Area (section) | Browser / AT | Result (Pass / Partial / Fail) | Notes and issue links |
+|--|--|--|--|
+| Keyboard only (4.1) | | | |
+| NVDA + Firefox (4.2) | | | |
+| NVDA + Chrome (4.2) | | | |
+| VoiceOver + Safari macOS (4.2) | | | |
+| VoiceOver + Safari iOS (4.2) | | | |
+| Zoom, reflow, text spacing (4.3) | | | |
+| Colour, contrast, themes, forced colours (4.4) | | | |
+| Motion and sound (4.5) | | | |
+| Time limits (4.6) | | | |
+| Pointer and touch (4.7) | | | |
+| Consistency (4.7a) | | | |
+| Content and language (4.8) | | | |
 
 ## 5. Deployment with Docker
 
-The application is delivered as **one Docker image**. It builds the app, runs the tests, and serves the result with nginx on port 80 inside the container. No database or other service is needed; notes are stored in each user's browser.
+The application is one static web app served by nginx in a single image. The image needs no database or other service. It runs as a non-root user (uid 101), listens on port 80 inside the container, and answers health checks at `/healthz`.
 
-### 5.1 Build the image
+### 5.1 Local machine
 
-```bash
-docker build -t notes-kanban:1.0.0 -t notes-kanban:latest .
-```
-
-The build fails if any test fails. To skip the tests (for example on a slow build machine, when the tests already passed in CI):
+Build the image (this also runs the unit and component tests):
 
 ```bash
-docker build --build-arg SKIP_TESTS=true -t notes-kanban:1.0.0 .
+docker build -t notes-kanban:2.0.0 .
 ```
 
-### 5.2 Run locally
+Start it, mapping port 8080 on your machine to port 80 in the container:
 
 ```bash
-docker run -d --name notes-kanban -p 8080:80 --restart unless-stopped notes-kanban:1.0.0
+docker run -d --name notes-kanban --restart unless-stopped -p 8080:80 notes-kanban:2.0.0
 ```
 
-Open `http://localhost:8080`. To use another host port, change the first number, for example `-p 3000:80`.
+Open http://localhost:8080 in a browser.
 
-Alternatively, with Docker Compose (it runs the same single image):
+Smoke test from a terminal. The first command prints `ok`. The second prints `starting` at first and then `healthy`: after about 10 seconds on Docker 25 or later (it checks every 5 seconds during the start period), or after about 30 seconds on older versions (first check one interval after start):
+
+```bash
+curl -s http://localhost:8080/healthz
+```
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' notes-kanban
+```
+
+To use another port, change the first number, for example `-p 3000:80`.
+
+With Docker Compose (same image, same settings; the container is also named `notes-kanban`, so the commands in this document work unchanged). Stop any container started with `docker run` first, because the name and port are the same:
 
 ```bash
 docker compose up -d --build
 ```
 
-### 5.3 Verify the deployment
+### 5.2 Remote machine
 
-| Check | Command | Expected result |
-|---|---|---|
-| Health endpoint | `curl http://localhost:8080/healthz` | `ok` |
-| Application page | `curl -s http://localhost:8080/ \| grep "<title>"` | `<title>Notes &amp; Kanban Board</title>` |
-| SPA fallback | `curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/any/path` | `200` |
-| Container health | `docker inspect --format '{{.State.Health.Status}}' notes-kanban` | `healthy` (about 30 s after start) |
+Choose one way to get the image onto the remote machine.
 
-Then open the address in a browser and run M-01 and M-03.
-
-### 5.4 Deploy to a remote host
-
-**Option A — through a container registry** (Docker Hub, GitHub Container Registry, a private registry). Replace `registry.example.com/team` with your registry path.
+**Option A — through a container registry.** Replace `registry.example.com/team` with your registry:
 
 ```bash
-docker tag notes-kanban:1.0.0 registry.example.com/team/notes-kanban:1.0.0
+docker tag notes-kanban:2.0.0 registry.example.com/team/notes-kanban:2.0.0
 ```
 
 ```bash
-docker push registry.example.com/team/notes-kanban:1.0.0
+docker push registry.example.com/team/notes-kanban:2.0.0
 ```
 
-On the remote host:
+Then, on the remote machine:
 
 ```bash
-docker run -d --name notes-kanban -p 80:80 --restart unless-stopped registry.example.com/team/notes-kanban:1.0.0
+docker run -d --name notes-kanban --restart unless-stopped -p 80:80 registry.example.com/team/notes-kanban:2.0.0
 ```
 
-**Option B — without a registry**, copying the image over SSH. Replace `user@remote-host` with your server.
+**Option B — without a registry, copying a file.** On your machine, save the image and copy it (replace `user@server`):
 
 ```bash
-docker save notes-kanban:1.0.0 | gzip | ssh user@remote-host 'gunzip | docker load'
+docker save notes-kanban:2.0.0 | gzip > notes-kanban-2.0.0.tar.gz
 ```
 
 ```bash
-ssh user@remote-host 'docker run -d --name notes-kanban -p 80:80 --restart unless-stopped notes-kanban:1.0.0'
+scp notes-kanban-2.0.0.tar.gz user@server:
 ```
 
-Then run the checks in 5.3 against the remote address.
-
-### 5.5 HTTPS and reverse proxies
-
-The container serves plain HTTP. For a public deployment, put it behind a TLS-terminating reverse proxy or load balancer (for example Caddy, Traefik, or nginx on the host) and forward requests to the container port. The application works over plain HTTP too (it does not require browser features that are limited to secure contexts), but HTTPS is recommended.
-
-### 5.6 Update and roll back
+On the remote machine, load and run it:
 
 ```bash
-docker pull registry.example.com/team/notes-kanban:1.0.1
+gunzip -c notes-kanban-2.0.0.tar.gz | docker load
 ```
+
+```bash
+docker run -d --name notes-kanban --restart unless-stopped -p 80:80 notes-kanban:2.0.0
+```
+
+**Option C — build on the remote machine.** Copy the `experiment-3` folder (or clone the repository) to the server and run the commands from 5.1 there.
+
+Then open `http://<server-name-or-address>/` in a browser. If a firewall is active, allow the chosen port.
+
+### 5.3 HTTPS
+
+For use over the internet, put the container behind a reverse proxy that terminates HTTPS (for example Caddy, Traefik or nginx with a certificate) and forward requests to the container's port. The application itself needs no configuration for this.
+
+### 5.4 Image details
+
+| Item | Value |
+|--|--|
+| Base image | `nginxinc/nginx-unprivileged:1.27-alpine` |
+| User | 101 (non-root) |
+| Port | 80 (Docker allows non-root processes to use low ports inside containers by default) |
+| Health check | `GET /healthz` returns `200 ok`; checked every 30 s; `healthy` about 10 s after start on Docker 25+, about 30 s on older versions |
+| Security headers | On every response (page, assets, health check): `Content-Security-Policy` (scripts from the same origin only; inline styles allowed so readability tools work), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` |
+| Caching | `index.html` revalidated on every visit; hashed assets cached for one year |
+| Data | None on the server. Notes are stored in each user's browser. |
+
+## 6. Operating the deployment
+
+### 6.1 Where the data is
+
+Notes live in the browser's local storage for the site's address (scheme, host and port). They are not on the server. As a result:
+
+- Different browsers, browser profiles and devices each have their own notes.
+- Changing the address (for example from port 8080 to 80, or from an IP address to a host name) starts with an empty board. **Ask users to export their notes before you change the address**, and to import the file afterwards.
+- Clearing the browser's site data deletes the notes. Regular exports are the backup.
+
+### 6.2 Updating to a new version
+
+Build or pull the new image, then replace the container. Users' notes are not affected, because they are in their browsers:
 
 ```bash
 docker rm -f notes-kanban
 ```
 
 ```bash
-docker run -d --name notes-kanban -p 80:80 --restart unless-stopped registry.example.com/team/notes-kanban:1.0.1
+docker run -d --name notes-kanban --restart unless-stopped -p 8080:80 notes-kanban:2.0.1
 ```
 
-To roll back, run the previous tag in the same way. User data is not affected by updates or rollbacks because it is stored in each user's browser. Tell users to **export** their notes before clearing browser data or changing to another browser or device.
+To roll back, run the previous tag the same way.
 
-### 5.7 Image contents and configuration
+### 6.3 Logs and status
 
-| Item | Value |
-|---|---|
-| Base image | `nginx:1.27-alpine` (build stage `node:22-alpine` is not in the final image) |
-| Port | 80 (container) |
-| Health check | `GET /healthz` every 30 s |
-| Static files | `/usr/share/nginx/html` |
-| Server config | `nginx.conf` → `/etc/nginx/conf.d/default.conf` |
-| Security headers | `Content-Security-Policy` (self only), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` |
-| Caching | `index.html`: `no-cache`; `/assets/*` (hashed): one year, immutable |
-| Runtime configuration | None required |
+```bash
+docker logs --tail 100 notes-kanban
+```
 
-### 5.8 Troubleshooting
+```bash
+docker ps --filter name=notes-kanban
+```
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| `docker build` stops at the test step | A test failed | Run `npx vitest run` locally and read the failure. |
-| "port is already allocated" | Host port in use | Use another host port, e.g. `-p 8081:80`. |
-| Page loads but notes disappear | Browser in private mode or site data cleared | Use a normal window; export notes regularly. When the browser refuses to save, a warning that starts with ⚠ and reads "Changes could not be saved in this browser. Export your notes to keep them." appears at the top of the main content. |
-| Warning "Saved notes could not be loaded" | Stored data was changed or corrupted | Import a previous export. |
+## 7. Troubleshooting
 
-## 6. Release checklist
+| Problem | Likely cause | What to do |
+|--|--|--|
+| `docker build` stops at `npx vitest run` | A unit or component test failed. | Run `npm test` locally to see which test fails and why. |
+| "port is already allocated" | Another program uses the host port. | Use another host port, for example `-p 8081:80`. |
+| Health status is `starting` | Normal for up to about 10 seconds after start (Docker 25+) or 30 seconds (older Docker). | Wait and check again. |
+| Container stays "unhealthy" | nginx did not start or the port mapping is wrong. | Check `docker logs notes-kanban`; check that the right side of `-p` is `80`. |
+| Container exits with "bind() to 0.0.0.0:80 failed (13: Permission denied)" | The container engine does not allow non-root processes to use low ports (some older or hardened setups). | Run with `--sysctl net.ipv4.ip_unprivileged_port_start=0`, or upgrade Docker. |
+| The page is blank | JavaScript is disabled, or a proxy strips files. | The page shows a message when JavaScript is off; otherwise open the browser's developer console and check that `/assets/…` files load. |
+| Notes are missing after moving the app | The address changed (section 6.1). | Import the exported file. |
+| "Saved notes could not be read" banner | Stored data was damaged. | A copy is kept under the browser storage key `notes-kanban:backup`; import a recent export. |
+| Playwright says the browser is missing | Chromium is not installed for this Playwright version. | Run `npx playwright install --with-deps chromium`. |
+| Drag tests fail locally | A different viewport hides the cards. | Run with the provided `playwright.config.ts` (1366 × 1400 viewport). |
 
-1. `npx tsc -b` and `npx vitest run` pass.
-2. Browser axe check (3.4) shows no violations in light and dark schemes.
-3. Manual tests in section 4 pass, at minimum: K-01 – K-11 (including K-08a), S-03, S-04, S-06, S-08, S-09, S-10, V-01, V-05, M-09, M-13.
-4. Image builds and passes the checks in 5.3.
-5. Image is tagged with a version number and pushed.
+## 8. Release checklist
+
+1. `npm ci`
+2. `npm run typecheck` — no errors.
+3. `npm test` — all tests pass.
+4. `npm run test:e2e` — all tests pass.
+5. Build the image (5.1) and run the end-to-end suite against it (2.4) — 20 tests pass.
+6. Run the manual accessibility plan (section 4) and record the results (4.9).
+7. Tag and publish the image (5.2).
+8. Tell users to export their notes first if the address changes (6.1).
+
+## 9. Review record
+
+| Date | Reviewer | Result |
+|--|--|--|
+| 2026-11-02 | accessibility-reviewer, round 1 | Not accepted. B1 health-check timing → corrected in 5.1, 5.4 and a new troubleshooting row; measured on Docker 29: `healthy` after 9 s (start-period probing), so the text gives both the Docker 25+ (~10 s) and older (~30 s) timings. B2 test plan vs. code: (a) header claim → new `e2e/deployment.spec.ts`; (b) landmark list → per-column regions and reset banner added; (c) one-notification check → split into 400 % / short window and 320 px wide steps. Suggestions taken: manual steps for hoverable tooltips, pointer cancellation, small-viewport queue and consistency (4.3, 4.7, 4.7a); `container_name` in docker-compose.yml; `--with-deps`; `Referrer-Policy` on assets; "Field / Value" headers on the metadata tables of docs 01–04; "Tab to Add note" in 4.1. |
+| 2026-11-02 | accessibility-reviewer, round 2 | **Accepted.** B1 and B2 confirmed resolved; no new problems. Optional clarification applied to 4.7 step 7 (pointer cancellation vs. card drag). |

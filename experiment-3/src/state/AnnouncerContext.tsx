@@ -1,94 +1,83 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react';
 
-interface Message {
-  text: string;
+export type Politeness = 'polite' | 'assertive';
+
+interface RegionPair {
+  polite: RefObject<HTMLDivElement>;
+  assertive: RefObject<HTMLDivElement>;
 }
 
-interface Announcer {
-  /** Polite confirmation in the status region (role="status"). */
-  announce: (text: string) => void;
-  /** Assertive error in the alert region (role="alert"). */
-  announceError: (text: string) => void;
-  /** Persistent warning that later status messages do not overwrite. */
-  showBanner: (text: string) => void;
+interface AnnouncerValue {
+  announce: (text: string, level?: Politeness) => void;
+  /** Dialogs register their own live regions, because a modal dialog makes the page regions inert. */
+  register: (pair: RegionPair) => () => void;
 }
 
-interface AnnouncerState {
-  status: Message | null;
-  error: Message | null;
-  banner: string | null;
-  dismissMessage: () => void;
-  dismissBanner: () => void;
-}
+const AnnouncerContext = createContext<AnnouncerValue | null>(null);
 
-const AnnouncerContext = createContext<Announcer | null>(null);
-const AnnouncerStateContext = createContext<AnnouncerState | null>(null);
+/** Messages are removed from the live region after this long; they have been read by then. */
+const MESSAGE_LIFETIME = 7000;
+/**
+ * Messages are written after a short delay so that a dialog closing in the same event has gone
+ * (and the page regions are no longer inert) by the time the text is added.
+ */
+const WRITE_DELAY = 60;
+
+export function LiveRegions({ pair }: { pair: RegionPair }) {
+  return (
+    <>
+      <div ref={pair.polite} className="sr-only" role="status" aria-live="polite" aria-atomic="false" />
+      <div ref={pair.assertive} className="sr-only" role="alert" aria-live="assertive" aria-atomic="false" />
+    </>
+  );
+}
 
 export function AnnouncerProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<Message | null>(null);
-  const [error, setError] = useState<Message | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
-  const last = useRef<{ text: string; kind: 'status' | 'error' } | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const page: RegionPair = { polite: useRef<HTMLDivElement>(null), assertive: useRef<HTMLDivElement>(null) };
+  const pageRef = useRef(page);
+  const stack = useRef<RegionPair[]>([]);
 
-  const show = useCallback((text: string, kind: 'status' | 'error') => {
-    clearTimeout(timer.current);
-    const apply = () => {
-      setStatus(kind === 'status' ? { text } : null);
-      setError(kind === 'error' ? { text } : null);
-    };
-    // Screen readers ignore a live region whose text does not change, so an
-    // identical message is cleared first and re-inserted shortly after.
-    if (last.current?.text === text && last.current.kind === kind) {
-      setStatus(null);
-      setError(null);
-      timer.current = setTimeout(apply, 100);
-    } else {
-      apply();
-    }
-    last.current = { text, kind };
+  const announce = useCallback((text: string, level: Politeness = 'polite') => {
+    window.setTimeout(() => {
+      const top = stack.current[stack.current.length - 1] ?? pageRef.current;
+      const region = top[level].current ?? pageRef.current[level].current;
+      if (!region) return;
+      // Append rather than replace, so quick successive messages are all read.
+      const p = document.createElement('p');
+      p.textContent = text;
+      region.appendChild(p);
+      window.setTimeout(() => p.remove(), MESSAGE_LIFETIME);
+    }, WRITE_DELAY);
   }, []);
 
-  const api = useMemo<Announcer>(
-    () => ({
-      announce: (text) => show(text, 'status'),
-      announceError: (text) => show(text, 'error'),
-      showBanner: (text) => setBanner(text),
-    }),
-    [show],
-  );
+  const register = useCallback((pair: RegionPair) => {
+    stack.current.push(pair);
+    return () => {
+      stack.current = stack.current.filter((p) => p !== pair);
+    };
+  }, []);
 
-  const state = useMemo<AnnouncerState>(
-    () => ({
-      status,
-      error,
-      banner,
-      dismissMessage: () => {
-        clearTimeout(timer.current);
-        setStatus(null);
-        setError(null);
-        last.current = null;
-      },
-      dismissBanner: () => setBanner(null),
-    }),
-    [status, error, banner],
-  );
-
+  const value = useMemo(() => ({ announce, register }), [announce, register]);
   return (
-    <AnnouncerContext.Provider value={api}>
-      <AnnouncerStateContext.Provider value={state}>{children}</AnnouncerStateContext.Provider>
+    <AnnouncerContext.Provider value={value}>
+      {children}
+      <LiveRegions pair={page} />
     </AnnouncerContext.Provider>
   );
 }
 
-export function useAnnouncer(): Announcer {
-  const ctx = useContext(AnnouncerContext);
-  if (!ctx) throw new Error('useAnnouncer must be used inside AnnouncerProvider');
-  return ctx;
+export function useAnnouncer(): AnnouncerValue {
+  const value = useContext(AnnouncerContext);
+  if (!value) throw new Error('useAnnouncer outside AnnouncerProvider');
+  return value;
 }
 
-export function useAnnouncerState(): AnnouncerState {
-  const ctx = useContext(AnnouncerStateContext);
-  if (!ctx) throw new Error('useAnnouncerState must be used inside AnnouncerProvider');
-  return ctx;
+/** Live regions owned by a dialog, active while it is mounted. */
+export function useDialogLiveRegions(): RegionPair {
+  const { register } = useAnnouncer();
+  const polite = useRef<HTMLDivElement>(null);
+  const assertive = useRef<HTMLDivElement>(null);
+  const pair = useRef<RegionPair>({ polite, assertive }).current;
+  useEffect(() => register(pair), [register, pair]);
+  return pair;
 }

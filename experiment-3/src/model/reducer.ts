@@ -1,131 +1,90 @@
 import { newId } from './ids';
-import { parseTags } from './tags';
-import type { AppState, Column, Id, Note } from './types';
+import type { BoardState, Column, Note } from './types';
 
-export type Action =
-  | { type: 'ADD_NOTE'; note: Note }
-  | { type: 'UPDATE_NOTE'; id: Id; title: string; description: string; tags: string[]; now: string }
-  | { type: 'DELETE_NOTE'; id: Id }
-  | { type: 'MOVE_NOTE'; id: Id; columnId: Id | null; now: string }
-  | { type: 'ADD_COLUMN'; column: Column }
-  | { type: 'IMPORT'; state: AppState };
+export type BoardAction =
+  | { type: 'addNote'; note: Note }
+  | { type: 'updateNote'; id: string; changes: Partial<Omit<Note, 'id' | 'createdAt'>>; now: string }
+  | { type: 'deleteNote'; id: string }
+  /** toColumnId null = remove from board. toIndex is the position in the target column after removal from its old place. */
+  | { type: 'moveNote'; id: string; toColumnId: string | null; toIndex: number }
+  | { type: 'addColumn'; column: Column }
+  | { type: 'renameColumn'; id: string; name: string }
+  | { type: 'deleteColumn'; id: string }
+  | { type: 'moveColumn'; id: string; delta: -1 | 1 }
+  | { type: 'toggleColumn'; id: string }
+  | { type: 'replaceAll'; state: BoardState };
 
-export const DEFAULT_COLUMN_NAMES = ['To do', 'In progress', 'Done'];
-
-export function defaultState(): AppState {
-  return { notes: [], columns: DEFAULT_COLUMN_NAMES.map((name) => ({ id: newId(), name })) };
+export function defaultColumns(): Column[] {
+  return ['To do', 'In progress', 'Done'].map((name) => ({ id: newId('col'), name, collapsed: false, noteIds: [] }));
 }
 
-export interface NoteInput {
-  title: string;
-  description: string;
-  tags: string;
+export function emptyBoard(): BoardState {
+  return { notes: [], columns: defaultColumns() };
 }
 
-// Action creators keep the reducer pure: ids and timestamps are generated here.
-
-export function addNote(input: NoteInput, now = new Date().toISOString()): Extract<Action, { type: 'ADD_NOTE' }> {
-  return {
-    type: 'ADD_NOTE',
-    note: {
-      id: newId(),
-      title: input.title.trim(),
-      description: input.description.trim(),
-      tags: parseTags(input.tags),
-      columnId: null,
-      createdAt: now,
-      updatedAt: now,
-      movedAt: null,
-    },
-  };
+function withoutNote(columns: Column[], id: string): Column[] {
+  return columns.map((c) => (c.noteIds.includes(id) ? { ...c, noteIds: c.noteIds.filter((n) => n !== id) } : c));
 }
 
-export function updateNote(id: Id, input: NoteInput, now = new Date().toISOString()): Action {
-  return {
-    type: 'UPDATE_NOTE',
-    id,
-    title: input.title.trim(),
-    description: input.description.trim(),
-    tags: parseTags(input.tags),
-    now,
-  };
-}
-
-export function moveNote(id: Id, columnId: Id | null, now = new Date().toISOString()): Action {
-  return { type: 'MOVE_NOTE', id, columnId, now };
-}
-
-export function addColumn(name: string): Action {
-  return { type: 'ADD_COLUMN', column: { id: newId(), name: name.trim() } };
-}
-
-export function isDuplicateColumnName(columns: Column[], name: string): boolean {
-  const key = name.trim().toLowerCase();
-  return columns.some((c) => c.name.toLowerCase() === key);
-}
-
-export function reducer(state: AppState, action: Action): AppState {
+export function boardReducer(state: BoardState, action: BoardAction): BoardState {
   switch (action.type) {
-    case 'ADD_NOTE':
-      if (!action.note.title) return state;
-      return { ...state, notes: [...state.notes, action.note] };
+    case 'addNote':
+      return { ...state, notes: [action.note, ...state.notes] };
 
-    case 'UPDATE_NOTE':
-      if (!action.title) return state;
+    case 'updateNote':
       return {
         ...state,
-        notes: state.notes.map((n) =>
-          n.id === action.id
-            ? { ...n, title: action.title, description: action.description, tags: action.tags, updatedAt: action.now }
-            : n,
-        ),
+        notes: state.notes.map((n) => (n.id === action.id ? { ...n, ...action.changes, updatedAt: action.now } : n)),
       };
 
-    case 'DELETE_NOTE':
-      return { ...state, notes: state.notes.filter((n) => n.id !== action.id) };
+    case 'deleteNote':
+      return {
+        notes: state.notes.filter((n) => n.id !== action.id),
+        columns: withoutNote(state.columns, action.id),
+      };
 
-    case 'MOVE_NOTE': {
-      if (action.columnId !== null && !state.columns.some((c) => c.id === action.columnId)) return state;
-      const note = state.notes.find((n) => n.id === action.id);
-      if (!note || note.columnId === action.columnId) return state;
+    case 'moveNote': {
+      if (!state.notes.some((n) => n.id === action.id)) return state;
+      const columns = withoutNote(state.columns, action.id);
+      if (action.toColumnId === null) return { ...state, columns };
       return {
         ...state,
-        notes: state.notes.map((n) =>
-          n.id === action.id
-            ? { ...n, columnId: action.columnId, movedAt: action.columnId === null ? null : action.now }
-            : n,
-        ),
+        columns: columns.map((c) => {
+          if (c.id !== action.toColumnId) return c;
+          const index = Math.max(0, Math.min(action.toIndex, c.noteIds.length));
+          const noteIds = [...c.noteIds];
+          noteIds.splice(index, 0, action.id);
+          return { ...c, noteIds };
+        }),
       };
     }
 
-    case 'ADD_COLUMN':
-      if (!action.column.name || isDuplicateColumnName(state.columns, action.column.name)) return state;
+    case 'addColumn':
       return { ...state, columns: [...state.columns, action.column] };
 
-    case 'IMPORT':
+    case 'renameColumn':
+      return { ...state, columns: state.columns.map((c) => (c.id === action.id ? { ...c, name: action.name } : c)) };
+
+    case 'deleteColumn':
+      return { ...state, columns: state.columns.filter((c) => c.id !== action.id) };
+
+    case 'moveColumn': {
+      const from = state.columns.findIndex((c) => c.id === action.id);
+      const to = from + action.delta;
+      if (from < 0 || to < 0 || to >= state.columns.length) return state;
+      const columns = [...state.columns];
+      const [moved] = columns.splice(from, 1);
+      columns.splice(to, 0, moved);
+      return { ...state, columns };
+    }
+
+    case 'toggleColumn':
+      return {
+        ...state,
+        columns: state.columns.map((c) => (c.id === action.id ? { ...c, collapsed: !c.collapsed } : c)),
+      };
+
+    case 'replaceAll':
       return action.state;
   }
-}
-
-/** Notes of one column in display order (FR: ordered by time of assignment). */
-export function notesInColumn(state: AppState, columnId: Id): Note[] {
-  return state.notes
-    .filter((n) => n.columnId === columnId)
-    .sort((a, b) => (a.movedAt ?? a.createdAt).localeCompare(b.movedAt ?? b.createdAt));
-}
-
-export function columnName(state: AppState, columnId: Id | null): string | null {
-  if (columnId === null) return null;
-  return state.columns.find((c) => c.id === columnId)?.name ?? null;
-}
-
-export type DropResult = { kind: 'moved'; columnName: string } | { kind: 'same'; columnName: string } | { kind: 'none' };
-
-/** Decides what a drop means (design 5.3, onDragEnd): same column first, then a column, else nothing. */
-export function resolveDrop(state: AppState, noteId: Id, targetColumnId: Id | null): DropResult {
-  const note = state.notes.find((n) => n.id === noteId);
-  const target = targetColumnId === null ? undefined : state.columns.find((c) => c.id === targetColumnId);
-  if (!note || !target) return { kind: 'none' };
-  if (note.columnId === target.id) return { kind: 'same', columnName: target.name };
-  return { kind: 'moved', columnName: target.name };
 }

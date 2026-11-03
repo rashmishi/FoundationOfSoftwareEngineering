@@ -2,21 +2,35 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach } from 'vitest';
 
-// jsdom does not implement the modal dialog API; emulate what the app relies on.
-if (!HTMLDialogElement.prototype.showModal) {
-  HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
-    this.setAttribute('open', '');
-  };
+// jsdom gaps.
+if (typeof HTMLDialogElement !== 'undefined') {
+  const proto = HTMLDialogElement.prototype as HTMLDialogElement & Record<string, unknown>;
+  if (typeof proto.showModal !== 'function') {
+    proto.showModal = function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+  }
+  if (typeof proto.close !== 'function') {
+    proto.close = function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+  }
 }
-HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement, value?: string) {
-  if (!this.open) return;
-  if (value !== undefined) this.returnValue = value;
-  this.removeAttribute('open');
-  this.dispatchEvent(new Event('close'));
-};
+if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = function () {};
+if (!window.matchMedia) {
+  window.matchMedia = (query: string) =>
+    ({ matches: false, media: query, addEventListener() {}, removeEventListener() {}, onchange: null, addListener() {}, removeListener() {}, dispatchEvent: () => false }) as MediaQueryList;
+}
+if (typeof CSS === 'undefined' || !CSS.escape) {
+  (globalThis as { CSS?: unknown }).CSS = { escape: (s: string) => s.replace(/["\\]/g, '\\$&') };
+}
 
-// axe-core probes canvas for icon-ligature detection; jsdom has no canvas.
-HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
+beforeEach(() => {
+  localStorage.clear();
+  document.documentElement.removeAttribute('data-theme');
+});
 
-beforeEach(() => localStorage.clear());
 afterEach(() => cleanup());
+
+// axe-core probes canvas for icon contrast; jsdom has none.
+HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;

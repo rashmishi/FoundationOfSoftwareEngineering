@@ -1,58 +1,68 @@
-import { useState, type FormEvent } from 'react';
-import { addColumn, isDuplicateColumnName } from '../model/reducer';
-import { useAnnouncer } from '../state/AnnouncerContext';
-import { useStore } from '../state/StoreContext';
-import { FieldError } from './FieldError';
-import { useFieldErrorFocus } from './useFieldErrorFocus';
+import { useId, useRef, useState, type FormEvent } from 'react';
+import { newId } from '../model/ids';
+import { columnNameError, LIMITS } from '../model/validation';
+import { useBoard } from '../state/BoardContext';
+import { useFocusManager } from '../state/FocusContext';
+import { focusKeys } from '../state/focusKeys';
+import { usePreferences } from '../state/PreferencesContext';
+import { useToasts } from '../state/ToastContext';
+import { quote } from '../state/useNoteActions';
+import { describedBy, FieldError } from './FieldError';
+import { Icon } from './Icon';
 
-/** Adds a board column (FR-6.1, FR-6.2). */
 export function AddColumnForm() {
-  const { state, dispatch } = useStore();
-  const { announce } = useAnnouncer();
-  const showFieldError = useFieldErrorFocus();
   const [name, setName] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string>();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const id = useId();
+  const { state, commit } = useBoard();
+  const { notify } = useToasts();
+  const { requestFocus } = useFocusManager();
+  const { play } = usePreferences();
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    const trimmed = name.trim();
-    const problem = !trimmed
-      ? 'Column name is required.'
-      : isDuplicateColumnName(state.columns, trimmed)
-        ? 'A column with this name already exists.'
-        : null;
-    if (problem) {
-      setError(problem);
-      showFieldError('column-name', problem);
+    const err = columnNameError(name, state.columns);
+    setError(err);
+    if (err) {
+      play('error');
+      inputRef.current?.focus();
       return;
     }
-    dispatch(addColumn(trimmed));
-    announce(`Column '${trimmed}' added.`);
+    const column = { id: newId('col'), name: name.trim(), collapsed: false, noteIds: [] };
+    commit({ type: 'addColumn', column });
+    play('create');
+    notify({ text: `Column ${quote(column.name)} added.` });
     setName('');
-    setError(null);
+    requestFocus(focusKeys.columnHeading(column.id));
   };
 
   return (
-    <form aria-label="Add column" noValidate onSubmit={onSubmit} className="inline-form">
+    <form className="add-column" noValidate onSubmit={onSubmit}>
       <div className="field">
-        <label htmlFor="column-name">Column name</label>
-        <input
-          id="column-name"
-          type="text"
-          autoComplete="off"
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? 'column-name-error' : undefined}
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            setError(null);
-          }}
-        />
-        <FieldError id="column-name-error" message={error} />
+        <label htmlFor={`${id}-name`}>
+          Column name <span className="required">(required)</span>
+        </label>
+        <p id={`${id}-hint`} className="hint">Up to {LIMITS.columnName} characters.</p>
+        <div className="inline-form-row">
+          <input
+            ref={inputRef}
+            id={`${id}-name`}
+            type="text"
+            required
+            autoComplete="off"
+            value={name}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={describedBy(`${id}-hint`, error && `${id}-err`)}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <button type="submit" className="button">
+            <Icon name="plus" />
+            <span>Add column</span>
+          </button>
+        </div>
+        <FieldError id={`${id}-err`} message={error} />
       </div>
-      <button type="submit" className="btn btn-primary">
-        Add column
-      </button>
     </form>
   );
 }

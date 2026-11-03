@@ -2,7 +2,9 @@
 services:
   notes-kanban:
     build: .
-    image: notes-kanban:latest
+    image: notes-kanban:2.0.0
+    # Same name as in docs/04 section 5, so the docker inspect / logs / rm commands work unchanged.
+    container_name: notes-kanban
     ports:
       - "8080:80"
     restart: unless-stopped

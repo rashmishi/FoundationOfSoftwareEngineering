@@ -1,144 +1,195 @@
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  pointerWithin,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from '@dnd-kit/core';
-import { useRef, useState } from 'react';
-import { Board } from './components/Board';
-import { DND_INSTRUCTIONS, DND_INSTRUCTIONS_ID } from './components/DragHandle';
-import { ImportExport } from './components/ImportExport';
+import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
+import { DialogHost } from './components/DialogHost';
+import { Header } from './components/Header';
+import { DRAG_INSTRUCTIONS_ID } from './components/NoteCard';
 import { NoteForm } from './components/NoteForm';
-import { NotesList } from './components/NotesList';
-import { StatusBar } from './components/StatusBar';
-import { moveNote, resolveDrop } from './model/reducer';
-import type { Variant } from './model/types';
+import { SearchBar } from './components/SearchBar';
+import { focusNewestToast, ToastRegion } from './components/ToastRegion';
+import { Workspace } from './components/Workspace';
 import { AnnouncerProvider, useAnnouncer } from './state/AnnouncerContext';
-import { EditingProvider } from './state/EditingContext';
-import { FocusProvider, useRequestFocus } from './state/FocusContext';
-import { KeyboardDragProvider } from './state/KeyboardDragContext';
-import { StoreProvider, useStore } from './state/StoreContext';
+import { BoardProvider, useBoard } from './state/BoardContext';
+import { DialogProvider } from './state/DialogContext';
+import { FilterProvider } from './state/FilterContext';
+import { FocusProvider, useFocusManager } from './state/FocusContext';
+import { focusKeys } from './state/focusKeys';
+import { KeyboardMoveProvider } from './state/KeyboardMoveContext';
+import { exportFileName } from './model/importExport';
+import { BOARD_KEY } from './model/storage';
+import { PreferencesProvider } from './state/PreferencesContext';
+import { ToastProvider, useToasts } from './state/ToastContext';
 
-interface ActiveDrag {
-  noteId: string;
-  variant: Variant;
-  /** Focus was on the handle or another control of the dragged card (which may re-mount). */
-  focusWasInCard: boolean;
+function isEditable(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 }
 
-// dnd-kit's own announcements are silenced; the app's Announcer speaks instead (FR-G.2).
-const silentAnnouncements = {
-  onDragStart: () => undefined,
-  onDragMove: () => undefined,
-  onDragOver: () => undefined,
-  onDragEnd: () => undefined,
-  onDragCancel: () => undefined,
-};
-
-function Workspace() {
-  const { state, dispatch } = useStore();
+function useGlobalShortcuts() {
+  const { undo, lastUndo } = useBoard();
+  const { regionRef } = useToasts();
   const { announce } = useAnnouncer();
-  const requestFocus = useRequestFocus();
-  const [active, setActive] = useState<ActiveDrag | null>(null);
-  const activeRef = useRef<ActiveDrag | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const dialogOpen = !!document.querySelector('dialog[open]');
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z') {
+        // Not while typing, and not behind an open dialog (FR-12.6).
+        if (isEditable(e.target) || dialogOpen) return;
+        e.preventDefault();
+        if (lastUndo) undo('shortcut');
+        else announce('Nothing to undo.');
+      } else if (e.key === 'F8' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (dialogOpen) return;
+        e.preventDefault();
+        if (!focusNewestToast(regionRef.current)) announce('No notifications.');
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [undo, lastUndo, regionRef, announce]);
+}
 
-  const onDragStart = ({ active: a }: DragStartEvent) => {
-    const { noteId, variant } = a.data.current as { noteId: string; variant: Variant };
-    const card = document.getElementById(`${variant}-${noteId}-handle`)?.closest('article');
-    const drag = { noteId, variant, focusWasInCard: !!card && card.contains(document.activeElement) };
-    activeRef.current = drag;
-    setActive(drag);
-  };
-
-  const onDragEnd = ({ over }: DragEndEvent) => {
-    const drag = activeRef.current;
-    activeRef.current = null;
-    setActive(null);
-    if (!drag) return;
-    const note = state.notes.find((n) => n.id === drag.noteId);
-    if (!note) return;
-    const targetId = (over?.data.current as { columnId?: string } | undefined)?.columnId ?? null;
-    const result = resolveDrop(state, note.id, targetId);
-    if (result.kind === 'same') {
-      announce(`'${note.title}' is already in ${result.columnName}.`);
-    } else if (result.kind === 'moved') {
-      dispatch(moveNote(note.id, targetId));
-      announce(`Moved '${note.title}' to ${result.columnName}.`);
-      if (drag.focusWasInCard) requestFocus(`board-${note.id}-handle`);
-    } else {
-      // Dropped outside every column: the assignment is unchanged (FR-5.5).
-      announce(`'${note.title}' was not moved.`);
-    }
-  };
-
-  const activeNote = active ? state.notes.find((n) => n.id === active.noteId) : undefined;
-
+/** Shown when saved data could not be read at start-up (FR-3.3). */
+function ResetBanner() {
+  const { loadStatus } = useBoard();
+  const { announce } = useAnnouncer();
+  const { requestFocus } = useFocusManager();
+  const [open, setOpen] = useState(loadStatus === 'reset');
+  useEffect(() => {
+    if (loadStatus !== 'reset') return;
+    // Announce after the page has settled so screen readers do not miss it during load.
+    const timer = window.setTimeout(
+      () => announce('Saved notes could not be read, so the board was reset. A copy of the old data was kept in this browser.'),
+      1000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [loadStatus, announce]);
+  if (!open) return null;
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={pointerWithin}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDragCancel={() => {
-        activeRef.current = null;
-        setActive(null);
-      }}
-      accessibility={{ announcements: silentAnnouncements, screenReaderInstructions: { draggable: DND_INSTRUCTIONS }, restoreFocus: false }}
-    >
-      <p id={DND_INSTRUCTIONS_ID} className="visually-hidden">
-        {DND_INSTRUCTIONS}
-      </p>
-      <div className="workspace">
-        <NotesList />
-        <Board />
+    <section className="banner" aria-labelledby="reset-heading">
+      <h2 id="reset-heading">Saved notes could not be read</h2>
+      <p>The board was reset. A copy of the old data was kept in this browser.</p>
+      <button
+        type="button"
+        className="button small"
+        onClick={() => {
+          setOpen(false);
+          requestFocus(focusKeys.newNoteHeading);
+        }}
+      >
+        Dismiss
+      </button>
+    </section>
+  );
+}
+
+function Shell() {
+  useGlobalShortcuts();
+  return (
+    <>
+      <a className="skip-link" href="#board-heading" onClick={(e) => skipTo(e, 'board-heading')}>
+        Skip to board
+      </a>
+      <a className="skip-link" href="#notes-heading" onClick={(e) => skipTo(e, 'notes-heading')}>
+        Skip to notes
+      </a>
+      <Header />
+      <main id="main">
+        <ResetBanner />
+        <NoteForm />
+        <SearchBar />
+        <Workspace />
+        <div id={DRAG_INSTRUCTIONS_ID} className="sr-only">
+          Press Space to pick up. Use Left and Right arrows to change column, Up and Down arrows to change position. Press
+          Space to drop or Escape to cancel. Screen reader users can also use the Move to… button.
+        </div>
+      </main>
+      <ToastRegion />
+      <DialogHost />
+    </>
+  );
+}
+
+function skipTo(e: React.MouseEvent, id: string) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  e.preventDefault();
+  target.focus();
+  target.scrollIntoView?.({ block: 'start' });
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(error, info);
+  }
+  render() {
+    return this.state.failed ? <CrashScreen /> : this.props.children;
+  }
+}
+
+/** Export straight from storage, since the app state is not available after a crash. */
+function exportRaw() {
+  let data = '';
+  try {
+    data = localStorage.getItem(BOARD_KEY) ?? '';
+  } catch {
+    // nothing to export
+  }
+  const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = exportFileName();
+  a.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function CrashScreen() {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useEffect(() => ref.current?.focus(), []);
+  return (
+    <main className="crash">
+      <h1 ref={ref} tabIndex={-1}>Something went wrong</h1>
+      <p>The page stopped working. Your notes are still saved in this browser. Export them to keep a copy, then reload the page.</p>
+      <div className="crash-actions">
+        <button type="button" className="button" onClick={exportRaw}>
+          Export notes
+        </button>
+        <button type="button" className="button primary" onClick={() => window.location.reload()}>
+          Reload
+        </button>
       </div>
-      <DragOverlay dropAnimation={null}>
-        {activeNote ? (
-          <div className="note-card drag-overlay" aria-hidden="true">
-            <p className="note-title">{activeNote.title}</p>
-            {activeNote.tags.length > 0 && <p className="muted">{activeNote.tags.join(', ')}</p>}
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    </main>
+  );
+}
+
+export function Providers({ children }: { children: ReactNode }) {
+  return (
+    <PreferencesProvider>
+      <AnnouncerProvider>
+        <FocusProvider>
+          <ToastProvider>
+            <BoardProvider>
+              <FilterProvider>
+                <DialogProvider>
+                  <KeyboardMoveProvider>{children}</KeyboardMoveProvider>
+                </DialogProvider>
+              </FilterProvider>
+            </BoardProvider>
+          </ToastProvider>
+        </FocusProvider>
+      </AnnouncerProvider>
+    </PreferencesProvider>
   );
 }
 
 export function App() {
   return (
-    <AnnouncerProvider>
-      <FocusProvider>
-        <StoreProvider>
-          <KeyboardDragProvider>
-            <EditingProvider>
-              <a
-                href="#main"
-                className="skip-link"
-                onClick={(e) => {
-                  e.preventDefault();
-                  document.getElementById('main')?.focus();
-                }}
-              >
-                Skip to main content
-              </a>
-              <header className="app-header">
-                <h1>Notes &amp; Kanban Board</h1>
-              </header>
-              <main id="main" tabIndex={-1}>
-                <StatusBar />
-                <NoteForm />
-                <ImportExport />
-                <Workspace />
-              </main>
-            </EditingProvider>
-          </KeyboardDragProvider>
-        </StoreProvider>
-      </FocusProvider>
-    </AnnouncerProvider>
+    <ErrorBoundary>
+      <Providers>
+        <Shell />
+      </Providers>
+    </ErrorBoundary>
   );
 }

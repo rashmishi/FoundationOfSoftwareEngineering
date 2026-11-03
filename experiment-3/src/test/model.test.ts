@@ -1,131 +1,168 @@
 import { describe, expect, it } from 'vitest';
-import { exportFileName, parseImport, serialize } from '../model/importExport';
-import {
-  addColumn,
-  addNote,
-  defaultState,
-  moveNote,
-  notesInColumn,
-  reducer,
-  resolveDrop,
-  updateNote,
-} from '../model/reducer';
-import { loadState, LOAD_ERROR, saveState, STORAGE_KEY } from '../model/storage';
-import { parseTags } from '../model/tags';
-import type { AppState } from '../model/types';
+import { dueStatus, formatLongDate, isValidISODate } from '../model/dates';
+import { parseImport, serialise } from '../model/importExport';
+import { boardReducer, emptyBoard } from '../model/reducer';
+import { noteMatches, NO_FILTERS } from '../model/selectors';
+import { parseTags, tagColour } from '../model/tags';
+import { addToast, removeToast, type Toast } from '../model/toastQueue';
+import type { BoardState, Note } from '../model/types';
+import { columnNameError, validateNoteFields } from '../model/validation';
 
-const withNote = (title = 'Buy milk'): AppState => reducer(defaultState(), addNote({ title, description: 'd', tags: 'a, b' }));
-
-describe('parseTags', () => {
-  it('trims, drops empties and case-insensitive duplicates', () => {
-    expect(parseTags(' work, urgent,, Work ,  ')).toEqual(['work', 'urgent']);
-    expect(parseTags('')).toEqual([]);
-  });
+const note = (id: string, extra: Partial<Note> = {}): Note => ({
+  id, title: `Note ${id}`, description: '', tags: [], priority: 'none', dueDate: null,
+  createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', ...extra,
 });
+
+function board(): BoardState {
+  return {
+    notes: [note('a'), note('b'), note('c')],
+    columns: [
+      { id: 'todo', name: 'To do', collapsed: false, noteIds: ['a', 'b'] },
+      { id: 'done', name: 'Done', collapsed: false, noteIds: [] },
+    ],
+  };
+}
 
 describe('reducer', () => {
-  it('starts with the three default columns', () => {
-    expect(defaultState().columns.map((c) => c.name)).toEqual(['To do', 'In progress', 'Done']);
+  it('moves a note between columns and removes it from the old one', () => {
+    const s = boardReducer(board(), { type: 'moveNote', id: 'a', toColumnId: 'done', toIndex: 0 });
+    expect(s.columns[0].noteIds).toEqual(['b']);
+    expect(s.columns[1].noteIds).toEqual(['a']);
   });
 
-  it('adds a note with all values and ignores an empty title', () => {
-    const s = withNote();
-    expect(s.notes).toHaveLength(1);
-    expect(s.notes[0]).toMatchObject({ title: 'Buy milk', description: 'd', tags: ['a', 'b'], columnId: null });
-    expect(reducer(s, addNote({ title: '   ', description: '', tags: '' })).notes).toHaveLength(1);
+  it('reorders within a column with positions counted without the note', () => {
+    const s = boardReducer(board(), { type: 'moveNote', id: 'a', toColumnId: 'todo', toIndex: 1 });
+    expect(s.columns[0].noteIds).toEqual(['b', 'a']);
   });
 
-  it('updates and deletes notes', () => {
-    const s = withNote();
-    const id = s.notes[0].id;
-    const updated = reducer(s, updateNote(id, { title: 'New', description: 'x', tags: 'c' }));
-    expect(updated.notes[0]).toMatchObject({ title: 'New', description: 'x', tags: ['c'] });
-    expect(reducer(updated, { type: 'DELETE_NOTE', id }).notes).toHaveLength(0);
+  it('removes a note from the board when the target is null', () => {
+    const s = boardReducer(board(), { type: 'moveNote', id: 'b', toColumnId: null, toIndex: 0 });
+    expect(s.columns[0].noteIds).toEqual(['a']);
+    expect(s.notes).toHaveLength(3);
   });
 
-  it('keeps a note in exactly one column when moved between columns', () => {
-    let s = withNote();
-    const id = s.notes[0].id;
-    const [todo, doing] = s.columns;
-    s = reducer(s, moveNote(id, todo.id));
-    expect(notesInColumn(s, todo.id)).toHaveLength(1);
-    s = reducer(s, moveNote(id, doing.id));
-    expect(notesInColumn(s, todo.id)).toHaveLength(0);
-    expect(notesInColumn(s, doing.id)).toHaveLength(1);
+  it('deletes a note from the list and its column', () => {
+    const s = boardReducer(board(), { type: 'deleteNote', id: 'a' });
+    expect(s.notes.map((n) => n.id)).toEqual(['b', 'c']);
+    expect(s.columns[0].noteIds).toEqual(['b']);
   });
 
-  it('ignores moves to unknown columns', () => {
-    const s = withNote();
-    expect(reducer(s, moveNote(s.notes[0].id, 'nope'))).toBe(s);
+  it('deleting a column keeps its notes', () => {
+    const s = boardReducer(board(), { type: 'deleteColumn', id: 'todo' });
+    expect(s.columns.map((c) => c.id)).toEqual(['done']);
+    expect(s.notes).toHaveLength(3);
   });
 
-  it('rejects duplicate column names case-insensitively', () => {
-    const s = reducer(defaultState(), addColumn('Review'));
-    expect(s.columns).toHaveLength(4);
-    expect(reducer(s, addColumn('review')).columns).toHaveLength(4);
+  it('moves columns and ignores moves past the ends', () => {
+    expect(boardReducer(board(), { type: 'moveColumn', id: 'todo', delta: 1 }).columns.map((c) => c.id)).toEqual(['done', 'todo']);
+    expect(boardReducer(board(), { type: 'moveColumn', id: 'todo', delta: -1 }).columns.map((c) => c.id)).toEqual(['todo', 'done']);
+  });
+
+  it('starts with three default columns', () => {
+    expect(emptyBoard().columns.map((c) => c.name)).toEqual(['To do', 'In progress', 'Done']);
   });
 });
 
-describe('resolveDrop', () => {
-  it('distinguishes same column, other column and outside', () => {
-    let s = withNote();
-    const id = s.notes[0].id;
-    s = reducer(s, moveNote(id, s.columns[0].id));
-    expect(resolveDrop(s, id, s.columns[0].id)).toEqual({ kind: 'same', columnName: 'To do' });
-    expect(resolveDrop(s, id, s.columns[1].id)).toEqual({ kind: 'moved', columnName: 'In progress' });
-    expect(resolveDrop(s, id, null)).toEqual({ kind: 'none' });
+describe('tags', () => {
+  it('splits, trims and removes duplicates ignoring case', () => {
+    expect(parseTags(' work, Home ,, work ,HOME, a  b ')).toEqual(['work', 'Home', 'a b']);
+  });
+  it('gives the same tag the same colour', () => {
+    expect(tagColour('Work')).toBe(tagColour('work'));
+  });
+});
+
+describe('dates', () => {
+  it('validates real calendar dates', () => {
+    expect(isValidISODate('2026-02-28')).toBe(true);
+    expect(isValidISODate('2026-02-30')).toBe(false);
+    expect(isValidISODate('03/11/2026')).toBe(false);
+  });
+  it('formats with full weekday and month names', () => {
+    expect(formatLongDate('2026-11-03')).toBe('Tuesday 3 November 2026');
+  });
+  it('marks past dates overdue except in Done', () => {
+    expect(dueStatus('2026-11-01', 'To do', '2026-11-02')).toBe('overdue');
+    expect(dueStatus('2026-11-01', 'done', '2026-11-02')).toBe('upcoming');
+    expect(dueStatus('2026-11-02', undefined, '2026-11-02')).toBe('today');
+  });
+});
+
+describe('validation', () => {
+  it('requires a title and reports limits with the count', () => {
+    expect(validateNoteFields({ title: '  ', description: '', tagsText: '', dueDate: '' }).title).toBe('Enter a title for the note.');
+    expect(validateNoteFields({ title: 'x'.repeat(230), description: '', tagsText: '', dueDate: '' }).title).toBe(
+      'Title can be at most 200 characters (you have 230).',
+    );
+  });
+  it('rejects long tags and invalid dates, including bad typed input', () => {
+    const e = validateNoteFields({ title: 'ok', description: '', tagsText: 'y'.repeat(41), dueDate: '', dueBadInput: true });
+    expect(e.tags).toMatch(/longer than 40 characters/);
+    expect(e.dueDate).toBe('Enter a valid date, for example 2026-11-03.');
+  });
+  it('rejects duplicate column names ignoring case', () => {
+    expect(columnNameError('to DO', [{ id: '1', name: 'To do' }])).toBe('A column named "To do" already exists. Choose a different name.');
+    expect(columnNameError('To do', [{ id: '1', name: 'To do' }], '1')).toBeUndefined();
   });
 });
 
 describe('import / export', () => {
-  it('round-trips all data', () => {
-    let s = withNote();
-    s = reducer(s, moveNote(s.notes[0].id, s.columns[2].id));
-    const json = serialize(s);
-    const parsed = JSON.parse(json);
-    expect(parsed.version).toBe(1);
-    const result = parseImport(json, []);
-    expect(result).toEqual({ ok: true, state: s });
-  });
-
-  it('names the file with the date', () => {
-    expect(exportFileName(new Date(2026, 9, 31))).toBe('notes-export-2026-10-31.json');
+  it('round-trips an export without losing data', () => {
+    const state = board();
+    state.notes[0] = note('a', { description: 'd', tags: ['x', 'y'], priority: 'high', dueDate: '2026-12-01' });
+    const result = parseImport(JSON.stringify(serialise(state)));
+    expect(result).toEqual({ ok: true, state });
   });
 
   it.each([
-    ['{not json', 'Import failed: the file is not valid JSON.'],
-    ['[]', 'Import failed: the file does not contain a notes list.'],
-    ['{"notes": {}}', 'Import failed: the file does not contain a notes list.'],
-    ['{"version": 2, "notes": []}', 'Import failed: unsupported file version.'],
-    ['{"notes": [{"title": ""}]}', 'Import failed: note 1 has no title.'],
-    ['{"notes": [{"title": "a", "tags": [1]}]}', 'Import failed: note 1 has an invalid tags.'],
-    ['{"notes": [{"id": "x", "title": "a"}, {"id": "x", "title": "b"}]}', 'Import failed: the file contains duplicate notes.'],
-    ['{"notes": [], "columns": [{"id": 1}]}', 'Import failed: the board columns are invalid.'],
-  ])('rejects %s', (text, error) => {
-    expect(parseImport(text, [])).toEqual({ ok: false, error });
-  });
-
-  it('normalises missing fields and unknown columns', () => {
-    const result = parseImport('{"notes": [{"title": " T ", "columnId": "ghost"}]}', defaultState().columns);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.state.notes[0]).toMatchObject({ title: 'T', description: '', tags: [], columnId: null });
-      expect(result.state.columns).toHaveLength(3);
-    }
+    ['not json {', 'The file is not valid JSON. Choose a file exported from this application.'],
+    ['[]', 'The file does not contain notes data.'],
+    [JSON.stringify({ format: 'other', version: 1, notes: [], columns: [] }), 'The file is not a notes export.'],
+    [JSON.stringify({ format: 'notes-kanban', version: 2, notes: [], columns: [] }), 'newer version (version 2)'],
+    [JSON.stringify({ format: 'notes-kanban', version: 1, notes: [{ id: 'a' }], columns: [] }), 'Note 1 has no title.'],
+    [JSON.stringify({ format: 'notes-kanban', version: 1, notes: [{ id: 'a', title: 't', dueDate: '2026-13-01' }], columns: [] }), 'invalid due date'],
+    [JSON.stringify({ format: 'notes-kanban', version: 1, notes: [], columns: [{ id: 'c', name: 'Done', noteIds: ['zz'] }] }), 'refers to a note that is not in the file'],
+  ])('rejects invalid file %#', (text, message) => {
+    const result = parseImport(text);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain(message);
   });
 });
 
-describe('storage', () => {
-  it('saves and loads state', () => {
-    const s = withNote();
-    expect(saveState(s)).toBe(true);
-    expect(loadState()).toEqual({ state: s });
+describe('filters', () => {
+  it('matches title, description and tags ignoring case', () => {
+    const n = note('a', { title: 'Buy milk', description: 'semi skimmed', tags: ['Groceries'] });
+    expect(noteMatches(n, { ...NO_FILTERS, query: 'MILK' }, undefined, '2026-11-02')).toBe(true);
+    expect(noteMatches(n, { ...NO_FILTERS, query: 'skim' }, undefined, '2026-11-02')).toBe(true);
+    expect(noteMatches(n, { ...NO_FILTERS, query: 'groc' }, undefined, '2026-11-02')).toBe(true);
+    expect(noteMatches(n, { ...NO_FILTERS, query: 'bread' }, undefined, '2026-11-02')).toBe(false);
+  });
+});
+
+describe('toast queue', () => {
+  const t = (id: string, kind: Toast['kind'] = 'success', undoId?: string) => ({ id, text: id, kind, undoId });
+
+  it('shows up to the limit and evicts the oldest unprotected toast', () => {
+    let list: Toast[] = [];
+    for (const id of ['1', '2', '3', '4']) list = addToast(list, t(id), 3, null);
+    expect(list.filter((x) => x.visible).map((x) => x.id)).toEqual(['2', '3', '4']);
   });
 
-  it('reports corrupted data and starts empty', () => {
-    localStorage.setItem(STORAGE_KEY, '{oops');
-    const loaded = loadState();
-    expect(loaded.error).toBe(LOAD_ERROR);
-    expect(loaded.state.notes).toEqual([]);
+  it('never evicts error toasts or the focused toast; new ones wait in the queue', () => {
+    let list: Toast[] = addToast([], t('err', 'error'), 1, null);
+    list = addToast(list, t('ok'), 1, null);
+    expect(list.map((x) => [x.id, x.visible])).toEqual([['err', true], ['ok', false]]);
+    list = removeToast(list, 'err', 1, null);
+    expect(list.map((x) => [x.id, x.visible])).toEqual([['ok', true]]);
+
+    let focused: Toast[] = addToast([], t('f'), 1, null);
+    focused = addToast(focused, t('g'), 1, 'f');
+    expect(focused.map((x) => [x.id, x.visible])).toEqual([['f', true], ['g', false]]);
+  });
+
+  it('replaces an older Undo toast with the newer one', () => {
+    let list = addToast([], t('a', 'success', 'u1'), 3, null);
+    list = addToast(list, t('b', 'success', 'u2'), 3, null);
+    expect(list.map((x) => x.id)).toEqual(['b']);
   });
 });

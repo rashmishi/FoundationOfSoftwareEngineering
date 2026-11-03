@@ -1,8 +1,6 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../App';
-
-export type User = ReturnType<typeof userEvent.setup>;
 
 export function renderApp() {
   const user = userEvent.setup();
@@ -10,28 +8,27 @@ export function renderApp() {
   return { user, ...utils };
 }
 
-export const createForm = () => within(screen.getByRole('form', { name: 'Create note' }));
-
-export async function createNote(user: User, title: string, description = '', tags = '') {
-  const form = createForm();
-  if (title) await user.type(form.getByRole('textbox', { name: /^Title/ }), title);
-  if (description) await user.type(form.getByRole('textbox', { name: 'Description' }), description);
-  if (tags) await user.type(form.getByRole('textbox', { name: 'Tags' }), tags);
-  await user.click(form.getByRole('button', { name: 'Create note' }));
+export async function addNote(user: ReturnType<typeof userEvent.setup>, title: string, extra: { description?: string; tags?: string } = {}) {
+  const form = within(screen.getByRole('region', { name: 'New note' }));
+  await user.type(form.getByLabelText(/^Title/), title);
+  if (extra.description) await user.type(form.getByLabelText('Description'), extra.description);
+  if (extra.tags) await user.type(form.getByLabelText('Tags'), extra.tags);
+  await user.click(form.getByRole('button', { name: 'Add note' }));
 }
 
-export const notesList = () => within(screen.getByRole('list', { name: 'Notes' }));
+export function notesList() {
+  return within(screen.getByRole('region', { name: 'Notes' }));
+}
 
-/** The board column whose heading is `name`. */
-export const boardColumn = (name: string) => {
-  const columns = screen.getByRole('list', { name: 'Board columns' });
-  const heading = within(columns).getByRole('heading', { level: 3, name });
-  return within(heading.closest('li') as HTMLElement);
-};
+export function column(name: string) {
+  return within(screen.getByRole('region', { name: new RegExp(`^${name}`) }));
+}
 
-/** The app's own status region (dnd-kit adds a hidden one of its own). */
-export const statusText = () => document.querySelector('.messages [role="status"]')?.textContent ?? '';
-export const alertText = () =>
-  Array.from(document.querySelectorAll('.messages [role="alert"]'))
-    .map((el) => el.textContent)
-    .join(' ');
+/** Text written to all live regions (page and dialogs). */
+export function announcements(): string {
+  return [...document.querySelectorAll('[role="status"], [role="alert"]')].map((el) => el.textContent).join(' | ');
+}
+
+export async function waitForAnnouncement(text: string | RegExp) {
+  await waitFor(() => expect(announcements()).toMatch(text));
+}
