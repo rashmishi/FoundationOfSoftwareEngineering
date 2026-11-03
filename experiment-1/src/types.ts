@@ -1,10 +1,22 @@
+export type Priority = 'none' | 'low' | 'medium' | 'high';
+
+export const PRIORITIES: readonly Priority[] = ['none', 'low', 'medium', 'high'];
+
+export const PRIORITY_LABELS: Record<Priority, string> = {
+  none: 'No priority',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+};
+
 export interface Note {
   id: string;
   title: string;
   description: string;
   tags: string[];
-  /** Id of the Kanban column the note is on, or null when unassigned. */
-  columnId: string | null;
+  priority: Priority;
+  /** Local calendar date, `YYYY-MM-DD`. */
+  dueDate: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -12,31 +24,17 @@ export interface Note {
 export interface Column {
   id: string;
   name: string;
+  collapsed: boolean;
+  /** Notes in this column, top to bottom. */
+  noteIds: string[];
 }
 
-export interface AppState {
+export interface BoardState {
+  /** Newest first. */
   notes: Note[];
+  /** Left to right. */
   columns: Column[];
 }
 
-export interface NoteInput {
-  title: string;
-  description: string;
-  tags: string[];
-}
-
-export const EXPORT_APP_ID = 'notes-kanban';
-export const SCHEMA_VERSION = 1;
-
-export interface ExportFile extends AppState {
-  app: typeof EXPORT_APP_ID;
-  version: typeof SCHEMA_VERSION;
-  exportedAt: string;
-}
-
-export const LIMITS = {
-  title: 200,
-  description: 5000,
-  tag: 50,
-  columnName: 60,
-} as const;
+/** The editable fields of a note. */
+export type NoteDraft = Pick<Note, 'title' | 'description' | 'tags' | 'priority' | 'dueDate'>;

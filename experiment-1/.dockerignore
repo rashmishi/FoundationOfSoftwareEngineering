@@ -1,5 +1,9 @@
-node_modules
-dist
-coverage
-.git
-*.log
+*
+!package.json
+!package-lock.json
+!index.html
+!tsconfig.json
+!vite.config.ts
+!nginx.conf
+!public
+!src

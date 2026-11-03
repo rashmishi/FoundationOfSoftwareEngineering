@@ -28,6 +28,21 @@ Implement a React web application according to this set of user stories:
 * As a user, I want to be able to access the application through my web browser.
 * As a system administrator, I want to be able to deploy the application to a local or remote system using a single docker image.
 
+Additional Features:
+ * Colour-coded priority levels and tags
+ * Auto-dismissing toast notifications with Undo
+ * Modal dialog for editing and delete confirmation
+ * Reordering notes within a column
+ * Icon-only toolbar on each note that appears on hover
+ * Inline editing of note titles
+ * “More actions” dropdown menu on notes and columns
+ * Search and filter with live results
+ * Due dates with overdue highlighting
+ * Collapsible columns
+ * Animations and transitions
+ * Sound effects
+ * Dark mode toggle
+
 Create detailed intermediate artifacts for each of the following steps:
  1. Requirements Specification Document
  2. Architecture & Design Document

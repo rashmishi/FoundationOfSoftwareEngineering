@@ -1,26 +1,4 @@
-# Dependencies
 node_modules/
-
-# Build output
 dist/
-*.tsbuildinfo
-
-# Test coverage
-coverage/
-
-# Logs
-*.log
-npm-debug.log*
-
-# Environment files (keep secrets out of git)
-.env
-.env.*
-!.env.example
-
-# Editor and OS files
-.vscode/*
-!.vscode/extensions.json
-.idea/
-*.swp
-.DS_Store
-Thumbs.db
+test-results/
+playwright-report/

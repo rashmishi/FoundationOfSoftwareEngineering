@@ -1,58 +1,50 @@
-import { useId, useRef, useState, type FormEvent } from 'react';
-import { LIMITS } from '../types';
-import { useNotes } from '../state/NotesContext';
-import { validateColumnName } from '../state/notesReducer';
+import { useId, useState, type FormEvent } from 'react';
+import { COLUMN_NAME_MAX } from '../model/notes';
+import { PlusIcon } from './Icons';
 
-export function AddColumnForm() {
-  const id = useId();
-  const { state, dispatch, announce } = useNotes();
+export function AddColumnForm({ onAdd }: { onAdd: (name: string) => string | null }) {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
+  const errorId = useId();
 
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    const problem = validateColumnName(name, state.columns);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const problem = onAdd(name);
     if (problem) {
       setError(problem);
-      inputRef.current?.focus();
-      return;
+    } else {
+      setName('');
+      setError(null);
     }
-    dispatch({ type: 'addColumn', name });
-    announce('success', `Column “${name.trim()}” added.`);
-    setName('');
-    setError(null);
-  }
+  };
 
   return (
-    <form className="add-column" aria-label="Add column" onSubmit={handleSubmit} noValidate>
-      <div className="field">
-        <label htmlFor={`${id}-name`}>New column name</label>
-        <div className="inline">
-          <input
-            ref={inputRef}
-            id={`${id}-name`}
-            type="text"
-            value={name}
-            maxLength={LIMITS.columnName}
-            aria-required="true"
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? `${id}-error` : undefined}
-            onChange={(e) => {
-              setName(e.target.value);
-              if (error) setError(null);
-            }}
-          />
-          <button type="submit" className="button primary">
-            Add column
-          </button>
-        </div>
-        {error && (
-          <p id={`${id}-error`} className="field-error">
-            {error}
-          </p>
-        )}
-      </div>
+    <form className="add-column" onSubmit={submit} noValidate aria-label="Add column">
+      <label htmlFor={inputId} className="add-column-label">
+        New column
+      </label>
+      <input
+        id={inputId}
+        className="input"
+        value={name}
+        maxLength={COLUMN_NAME_MAX}
+        placeholder="Column name"
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        onChange={(e) => {
+          setName(e.target.value);
+          setError(null);
+        }}
+      />
+      {error && (
+        <p id={errorId} className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+      <button type="submit" className="button button-primary">
+        <PlusIcon /> Add column
+      </button>
     </form>
   );
 }

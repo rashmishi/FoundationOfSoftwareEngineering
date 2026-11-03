@@ -1,28 +1,35 @@
-import { useRef } from 'react';
-import { useNotes } from '../state/NotesContext';
-import { NoteItem } from './NoteItem';
+import type { Column, Note } from '../types';
+import { NoteCard } from './NoteCard';
 
-export function NoteList() {
-  const { state } = useNotes();
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  const count = state.notes.length;
+interface NoteListProps {
+  notes: Note[];
+  total: number;
+  filtering: boolean;
+  columnOf: (id: string) => Column | undefined;
+  isDone: (column: Column | undefined) => boolean;
+}
 
+export function NoteList({ notes, total, filtering, columnOf, isDone }: NoteListProps) {
   return (
-    <section className="note-list" aria-labelledby="note-list-heading">
-      <h2 id="note-list-heading" ref={headingRef} tabIndex={-1}>
-        All notes <span className="count">({count})</span>
+    <section className="note-list-panel" aria-label="Notes">
+      <h2 id="notes-heading" className="panel-heading">
+        Notes <span className="panel-count" data-testid="note-count">{filtering ? `${notes.length} of ${total}` : total}</span>
       </h2>
-      {count === 0 ? (
-        <p className="empty">No notes yet. Create one above, or import a JSON file.</p>
+      {total === 0 ? (
+        <p className="empty-state">No notes yet. Add one with the form above, or import a file.</p>
+      ) : notes.length === 0 ? (
+        <p className="empty-state">No notes match the current search and filters.</p>
       ) : (
-        <>
-          <p className="hint">Drag a note onto a board column, or choose a column from its menu.</p>
-          <ul className="notes" aria-labelledby="note-list-heading">
-            {state.notes.map((note) => (
-              <NoteItem key={note.id} note={note} onDeleted={() => headingRef.current?.focus()} />
-            ))}
-          </ul>
-        </>
+        <ul className="card-list note-list" aria-label="All notes">
+          {notes.map((note) => {
+            const column = columnOf(note.id);
+            return (
+              <li key={note.id}>
+                <NoteCard note={note} context="list" column={column} isDone={isDone(column)} />
+              </li>
+            );
+          })}
+        </ul>
       )}
     </section>
   );
