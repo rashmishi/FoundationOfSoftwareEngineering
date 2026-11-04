@@ -21,7 +21,7 @@ async function pageScrollsSideways(page: Page) {
 async function chooseSetting(page: Page, group: string, option: string) {
   await page.getByRole('button', { name: 'Display settings' }).click();
   await page.getByRole('group', { name: group }).getByRole('radio', { name: option, exact: true }).check();
-  await page.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
 }
 
 test.describe('forms', () => {
@@ -62,7 +62,7 @@ test.describe('forms', () => {
   });
 
   test('optional fields say that they are optional', async ({ page }) => {
-    await expect(addNoteForm(page).getByText('(optional)')).toHaveCount(2);
+    await expect(addNoteForm(page).getByText('(optional)')).toHaveCount(4);
   });
 });
 
@@ -122,7 +122,7 @@ test.describe('buttons and structure', () => {
   test('every note is a named article with grouped actions', async ({ page }) => {
     await addNote(page, { title: 'Named' });
     await expect(noteList(page).getByRole('article', { name: 'Named' })).toBeVisible();
-    await expect(noteList(page).getByRole('group', { name: 'Actions for Named' }).getByRole('button')).toHaveCount(3);
+    await expect(noteList(page).getByRole('group', { name: 'Actions for Named' }).getByRole('button')).toHaveCount(4);
   });
 
   test('the page title names the open dialog and is restored afterwards', async ({ page }) => {
@@ -205,13 +205,13 @@ test.describe('keyboard', () => {
     await expect(page.getByRole('status')).toHaveText('Note "Still" created.');
 
     await page.keyboard.press('Space');
-    for (let press = 0; press < 5; press++) await page.keyboard.press('ArrowDown');
+    for (let press = 0; press < 5; press++) await page.keyboard.press('ArrowRight');
     await expect(page.getByRole('status')).toHaveText(/Over Done, column 3 of 3/);
   });
 
   test('the instructions are tied to the Pick up button', async ({ page }) => {
     await addNote(page, { title: 'Described' });
-    await expect(page.getByRole('button', { name: 'Pick up Described' })).toHaveAccessibleDescription(/arrow keys/);
+    await expect(page.getByRole('button', { name: 'Pick up Described' })).toHaveAccessibleDescription(/Left and Right/);
   });
 
   test('skip links reach each area, including the form', async ({ page }) => {
@@ -401,13 +401,10 @@ test.describe('safety', () => {
     await expect(page.getByRole('alert').filter({ hasText: 'too large' })).toBeVisible();
   });
 
-  test('nothing on the page moves, flashes or times out by itself', async ({ page }) => {
+  test('with animation off, nothing on the page moves by itself', async ({ page }) => {
+    await chooseSetting(page, 'Animation', 'Off');
     await addNote(page, { title: 'Calm' });
-    const animations = await page.evaluate(() => document.getAnimations().length);
-    expect(animations).toBe(0);
-
-    await page.waitForTimeout(1500);
-    await expect(page.getByRole('status')).toHaveText('Note "Calm" created.');
+    expect(await page.evaluate(() => document.getAnimations().length)).toBe(0);
   });
 });
 
@@ -428,7 +425,7 @@ test.describe('task completion', () => {
 
   test('a search with no results says what to try, and can be cleared', async ({ page }) => {
     await page.getByLabel('Search notes').fill('zebra');
-    await expect(noteList(page).getByText('No notes match your search.')).toBeVisible();
+    await expect(noteList(page).getByText('No notes match your search')).toBeVisible();
 
     await page.getByRole('button', { name: 'Clear search' }).click();
     await expect(noteList(page).locator('article')).toHaveCount(3);

@@ -44,18 +44,24 @@ export function saveData(data: BoardData): void {
 }
 
 const DRAFT_KEY = `${STORAGE_KEY}:draft`;
+const COLLAPSED_KEY = `${STORAGE_KEY}:collapsed`;
 
+/** The form's fields as typed, before they are turned into a note. */
 export interface NoteDraftText {
   title: string;
   description: string;
   tags: string;
+  priority: string;
+  dueDate: string;
 }
 
 /** Returns the note the user was still writing, if there is one. */
 export function loadDraft(): NoteDraftText | null {
   try {
-    const { title, description, tags } = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null') ?? {};
-    return [title, description, tags].every((field) => typeof field === 'string') ? { title, description, tags } : null;
+    const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null') ?? {};
+    const { title, description, tags, priority = 'none', dueDate = '' } = draft;
+    const fields = [title, description, tags, priority, dueDate];
+    return fields.every((field) => typeof field === 'string') ? { title, description, tags, priority, dueDate } : null;
   } catch {
     return null;
   }
@@ -64,13 +70,31 @@ export function loadDraft(): NoteDraftText | null {
 /** Drafts are a safety net, so a failure here is not worth interrupting the user. */
 export function saveDraft(draft: NoteDraftText): void {
   try {
-    if (draft.title || draft.description || draft.tags) {
+    if (draft.title || draft.description || draft.tags || draft.priority !== 'none' || draft.dueDate) {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } else {
       localStorage.removeItem(DRAFT_KEY);
     }
   } catch {
     // Writing continues without the safety net.
+  }
+}
+
+/** Collapsing is a view setting for this browser, so it is not part of the notes or exports. */
+export function loadCollapsed(): Set<string> {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]');
+    return new Set(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveCollapsed(ids: Set<string>): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]));
+  } catch {
+    // Columns stay collapsed until the page is closed.
   }
 }
 

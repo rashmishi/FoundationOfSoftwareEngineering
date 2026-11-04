@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { formatCount } from '../format';
-import { parseTags } from '../notes';
+import { parseTags, PRIORITY_LABELS } from '../notes';
 import { loadDraft, saveDraft } from '../storage';
-import type { NoteDraft } from '../types';
+import type { NoteDraft, Priority } from '../types';
 import { FieldError } from './FieldError';
 
 interface NoteFormProps {
@@ -15,24 +15,36 @@ interface NoteFormProps {
   onDirtyChange?: (isDirty: boolean) => void;
 }
 
+const PRIORITY_OPTIONS: Priority[] = ['none', 'low', 'medium', 'high'];
+
 export function NoteForm({ initial, submitLabel, onSave, onCancel, onDirtyChange }: NoteFormProps) {
   const [restoredDraft] = useState(() => (initial ? null : loadDraft()));
   const initialTags = initial?.tags.join(', ') ?? '';
+  const initialDueDate = initial?.dueDate ?? '';
   const [title, setTitle] = useState(restoredDraft?.title ?? initial?.title ?? '');
   const [description, setDescription] = useState(restoredDraft?.description ?? initial?.description ?? '');
   const [tags, setTags] = useState(restoredDraft?.tags ?? initialTags);
+  const [priority, setPriority] = useState(restoredDraft?.priority ?? initial?.priority ?? 'none');
+  const [dueDate, setDueDate] = useState(restoredDraft?.dueDate ?? initialDueDate);
   const [titleError, setTitleError] = useState<string | null>(null);
   const [showRestoredNote, setShowRestoredNote] = useState(restoredDraft !== null);
   const titleRef = useRef<HTMLInputElement>(null);
   const id = useId();
   const titleErrorId = `${id}-title-error`;
   const tagsHintId = `${id}-tags-hint`;
+  const dueHintId = `${id}-due-hint`;
   const parsedTags = parseTags(tags);
 
   useEffect(() => {
-    if (!initial) saveDraft({ title, description, tags });
-    onDirtyChange?.(title !== initial?.title || description !== initial.description || tags !== initialTags);
-  }, [initial, initialTags, title, description, tags, onDirtyChange]);
+    if (!initial) saveDraft({ title, description, tags, priority, dueDate });
+    onDirtyChange?.(
+      title !== initial?.title ||
+        description !== initial.description ||
+        tags !== initialTags ||
+        priority !== initial.priority ||
+        dueDate !== initialDueDate,
+    );
+  }, [initial, initialTags, initialDueDate, title, description, tags, priority, dueDate, onDirtyChange]);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -42,11 +54,19 @@ export function NoteForm({ initial, submitLabel, onSave, onCancel, onDirtyChange
       titleRef.current?.focus();
       return;
     }
-    const saved = onSave({ title: trimmedTitle, description, tags: parsedTags });
+    const saved = onSave({
+      title: trimmedTitle,
+      description,
+      tags: parsedTags,
+      priority: priority as Priority,
+      dueDate: dueDate || null,
+    });
     if (saved && !initial) {
       setTitle('');
       setDescription('');
       setTags('');
+      setPriority('none');
+      setDueDate('');
       setShowRestoredNote(false);
       titleRef.current?.focus();
     }
@@ -110,6 +130,37 @@ export function NoteForm({ initial, submitLabel, onSave, onCancel, onDirtyChange
           aria-describedby={tagsHintId}
           onChange={(event) => setTags(event.target.value)}
         />
+      </div>
+
+      <div className="form-pair">
+        <div className="field">
+          <label htmlFor={`${id}-priority`}>
+            Priority <span className="field-note">(optional)</span>
+          </label>
+          <select id={`${id}-priority`} value={priority} onChange={(event) => setPriority(event.target.value)}>
+            {PRIORITY_OPTIONS.map((value) => (
+              <option key={value} value={value}>
+                {PRIORITY_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label htmlFor={`${id}-due`}>
+            Due date <span className="field-note">(optional)</span>
+          </label>
+          <p id={dueHintId} className="field-note">
+            Leave empty for no due date.
+          </p>
+          <input
+            id={`${id}-due`}
+            type="date"
+            value={dueDate}
+            aria-describedby={dueHintId}
+            onChange={(event) => setDueDate(event.target.value)}
+          />
+        </div>
       </div>
 
       <div className="button-row">

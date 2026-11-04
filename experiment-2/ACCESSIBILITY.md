@@ -13,11 +13,32 @@ has and has not been tested.
 | **Buttons and structure** | Buttons have text labels and unique names for screen readers. One banner, one main landmark and an orderly heading tree. Notes are named articles with grouped actions. Tools stay in the same place. The page title names the open dialog. Targets are 44 × 44 px. | 1.3.1, 2.4.2, 2.4.6, 2.5.3, 2.5.8, 3.2.3, 3.2.4, 4.1.2 (AA); 2.4.10 Section Headings, 2.5.5 Target Size (AAA) |
 | **Keyboard** | All features work from the keyboard. Notes can be picked up, carried with the arrow keys and dropped, with every step announced. Esc cancels. Skip links reach each area. There are no single-key shortcuts to trigger by accident, and no keyboard traps. | 2.1.1, 2.1.2, 2.1.4, 2.4.1, 2.4.3, 2.4.7, 2.4.11 (AA); 2.1.3 Keyboard (No Exception) (AAA) |
 | **Visual** | Light, dark and high contrast themes (7:1 text). Follows the device's colour and contrast settings, and supports forced colours. State is shown by shape and text as well as colour. | 1.4.1, 1.4.3, 1.4.11 (AA); 1.4.6 Contrast (Enhanced) (AAA) |
-| **Safety** | Undo for every change, up to 20 steps. Deleting asks first. Closing an edit with unsaved changes asks first. An import that would overwrite a changed note asks first. Oversized and invalid files are rejected. Nothing flashes, animates or times out. | 2.2.1, 2.3.1, 3.3.4 (AA); 2.2.3 No Timing, 2.3.2 Three Flashes, 3.3.6 Error Prevention (All) (AAA) |
+| **Safety** | Undo for every change, up to 20 steps. Deleting a note or a column asks first. Closing an edit with unsaved changes asks first. An import that would overwrite a changed note asks first. Oversized and invalid files are rejected. Nothing flashes. | 2.2.1, 2.3.1, 3.3.4 (AA); 2.3.2 Three Flashes, 3.3.6 Error Prevention (All) (AAA) |
 | **Task completion** | Help in a fixed place, with steps and keys. Search by title, description or tag, with the number of results announced. A summary of progress. Clear confirmation after each action. Three ways to move a note, so that nobody depends on one ability. | 2.5.1, 2.5.7, 3.2.6, 4.1.3 (AA); 3.3.5 Help (AAA) |
 
 These are design intentions, not a claim of conformance. See [Limits of this
 testing](#limits-of-this-testing).
+
+## Features that carry accessibility risks, and how they are handled
+
+Several requested features are common sources of accessibility failures when built
+in the usual way. Each one here has been adapted so that it does not exclude anyone.
+
+| Feature | The usual risk | How this app handles it | WCAG 2.2 |
+|---|---|---|---|
+| Colour-coded priorities and tags | Meaning carried by colour alone | Every priority badge says its level in words and has its own arrow shape. Tags show their text. Colours meet 4.5:1, and 7:1 in high contrast. | 1.4.1, 1.4.3, 1.4.6 |
+| Messages that hide themselves | A time limit on reading and on Undo | Messages pause while pointed at or focused. Errors never hide. Display settings can lengthen the time or keep messages until dismissed. Undo stays in the header after a message has gone. | 2.2.1, 4.1.3 |
+| Edit and delete dialogs | Lost focus, keyboard traps | Native modal dialogs contain focus, close on Esc and return focus to the button that opened them. | 2.1.2, 2.4.3 |
+| Reordering by drag | Needs a precise pointer movement | Move up, Move down, Move to top and Move to bottom in the menu, and Up and Down while a note is picked up. A line shows where a note will land. | 2.1.1, 2.5.7 |
+| Icon-only buttons that appear on hover | No name, unreachable by keyboard or touch, tooltips that vanish | Each button has a full accessible name, which its tooltip starts with. The toolbar also appears on keyboard focus and is always visible on touch screens. It keeps its space while hidden, so nothing shifts. Tooltips can be pointed at, stay until left and close on Esc. Display settings can show the toolbar all the time, which helps voice control and low vision users. | 1.4.13, 2.1.1, 2.5.3, 4.1.2 |
+| Inline title editing | A field with no label, focus left behind | The field has a visible label, gets focus on opening and reports empty titles. Enter saves, Esc cancels, and focus returns to the More actions button. Double-clicking is a shortcut only. | 2.4.3, 3.3.1, 3.3.2 |
+| More actions menus | Home-made menus that do not work with a keyboard or screen reader | The WAI-ARIA menu button pattern: arrow keys, Home, End, first-letter search, Esc and Tab to close. Focus returns to the button. Menus open upwards when there is no room below. | 2.1.1, 4.1.2 |
+| Live search and filters | Announcements on every key press | Results update at once, but the count is announced only after typing pauses. Filters are ordinary labelled selects in a section that can be shown or hidden. | 3.2.2, 4.1.3 |
+| Due dates and overdue highlighting | A red border as the only warning | The words "Overdue", a warning icon and a machine-readable `<time>`, as well as the border. Dates are shown in the user's own date format. | 1.3.1, 1.4.1 |
+| Collapsible columns | A hidden state that is not announced | The column title is a button with `aria-expanded`. Collapsed columns keep their note count and still accept dropped notes. | 4.1.2 |
+| Animations and transitions | Motion sickness, distraction | Animation follows the device's reduced motion setting and can be switched off. When it is off, nothing on the page animates. Motion is short and nothing flashes. | 2.3.1 (AA); 2.3.3 Animation from Interactions (AAA) |
+| Sound effects | Startling sounds, clashing with screen readers, sound as the only cue | Sound is off until the user turns it on. Every sound comes with a visible, announced message, and each lasts under half a second. | 1.4.2 |
+| Dark mode toggle | A toggle that does not say whether it is on | A real button with `aria-pressed`, in the same place on every visit. It also reflects the device's own dark setting. | 4.1.2, 3.2.3 |
 
 ## Accessibility requirements
 

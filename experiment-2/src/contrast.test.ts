@@ -56,8 +56,20 @@ describe.each(Object.entries(themes))('%s theme', (_name, tokens) => {
     expect(contrast(tokens['tag-text'], tokens['tag-bg'])).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(['text', 'text-muted'])('%s meets 4.5:1 on a card being dragged', (token) => {
+  it.each(['text', 'text-muted', 'danger'])('%s meets 4.5:1 on a card being dragged or a highlighted menu item', (token) => {
     expect(contrast(tokens[token], tokens['tag-bg'])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(['high', 'medium', 'low'])('%s priority badge text meets 4.5:1', (level) => {
+    expect(contrast(tokens[`priority-${level}-text`], tokens[`priority-${level}-bg`])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each([0, 1, 2, 3, 4, 5])('tag colour %s meets 4.5:1', (index) => {
+    expect(contrast(tokens[`tag-${index}-text`], tokens[`tag-${index}-bg`])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(['high', 'medium', 'low'])('the %s priority edge meets 3:1 against the card', (level) => {
+    expect(contrast(tokens[`priority-${level}-text`], tokens.surface)).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -69,4 +81,11 @@ describe('high contrast theme', () => {
   it('primary button text meets 7:1', () => {
     expect(contrast(themes.contrast['on-primary'], themes.contrast.primary)).toBeGreaterThanOrEqual(7);
   });
+
+  it.each(['priority-high', 'priority-medium', 'priority-low', ...[0, 1, 2, 3, 4, 5].map((index) => `tag-${index}`)])(
+    '%s text meets 7:1',
+    (name) => {
+      expect(contrast(themes.contrast[`${name}-text`], themes.contrast[`${name}-bg`])).toBeGreaterThanOrEqual(7);
+    },
+  );
 });

@@ -1,4 +1,6 @@
-import type { BoardData, Column, Note } from './types';
+import { isValidIsoDate } from './dates';
+import { PRIORITY_LABELS } from './notes';
+import type { BoardData, Column, Note, Priority } from './types';
 
 const EXPORT_VERSION = 1;
 
@@ -46,7 +48,31 @@ function parseNote(value: unknown, position: number, columnIds: Set<string>): No
   if (typeof createdAt !== 'string' || typeof updatedAt !== 'string') {
     throw new InvalidDataError(`Note ${position} has no created and updated times.`);
   }
-  return { id, title, description, tags, columnId, createdAt, updatedAt };
+  return {
+    id,
+    title,
+    description,
+    tags,
+    priority: parsePriority(value.priority, position),
+    dueDate: parseDueDate(value.dueDate, position),
+    columnId,
+    createdAt,
+    updatedAt,
+  };
+}
+
+/** Files exported before priorities existed have none, which means no priority. */
+function parsePriority(value: unknown, position: number): Priority {
+  if (value === undefined) return 'none';
+  if (typeof value === 'string' && value in PRIORITY_LABELS) return value as Priority;
+  throw new InvalidDataError(`Note ${position} has a priority that is not low, medium or high.`);
+}
+
+/** Files exported before due dates existed have none. */
+function parseDueDate(value: unknown, position: number): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' && isValidIsoDate(value)) return value;
+  throw new InvalidDataError(`Note ${position} has a due date that is not a real date.`);
 }
 
 function rejectDuplicateIds(items: { id: string }[], kind: string): void {
@@ -85,8 +111,8 @@ export function parseImport(text: string): BoardData {
   return validateBoardData(value);
 }
 
-function visibleContent({ title, description, tags, columnId }: Note): string {
-  return JSON.stringify([title, description, tags, columnId]);
+function visibleContent({ title, description, tags, priority, dueDate, columnId }: Note): string {
+  return JSON.stringify([title, description, tags, priority, dueDate, columnId]);
 }
 
 /** Counts the notes an import would overwrite with content the user would notice. */

@@ -43,7 +43,10 @@ Notes are kept in each browser's `localStorage`, not on the server. This means:
 
 Use **Export notes** for backups and for moving notes between browsers.
 
-Display settings are stored the same way, so each browser keeps its own. The note
+Display settings are stored the same way, so each browser keeps its own. This
+includes colours, text size and spacing, font, animation, sound effects, how long
+messages stay and whether note buttons show all the time. Which columns are
+collapsed is also remembered per browser, and is not part of exports. The note
 being written in the Add a note form is also saved as a draft. Undo history is held
 in memory and ends when the page is closed or refreshed.
 
@@ -67,6 +70,8 @@ Export file format:
       "title": "Required",
       "description": "",
       "tags": ["example"],
+      "priority": "high",
+      "dueDate": "2026-11-30",
       "columnId": "todo",
       "createdAt": "2026-11-01T12:00:00.000Z",
       "updatedAt": "2026-11-01T12:00:00.000Z"
@@ -76,7 +81,12 @@ Export file format:
 }
 ```
 
-`columnId` is `null` for a note that is not on the board.
+`columnId` is `null` for a note that is not on the board. Notes in the same column
+appear on the board in the order they have in `notes`.
+
+`priority` is `none`, `low`, `medium` or `high`. `dueDate` is a calendar date as
+`YYYY-MM-DD`, or `null`. Both are optional when importing, so files exported before
+they existed still import.
 
 ## Development
 

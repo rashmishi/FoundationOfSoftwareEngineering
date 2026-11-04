@@ -1,12 +1,14 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { addNote, card, column, dragToColumn, noteList, useTheme, type Theme } from './helpers';
+import { addNote, card, column, dragToColumn, noteList, useTheme, waitForAnimations, type Theme } from './helpers';
 
 const THEMES: Theme[] = ['light', 'dark', 'contrast'];
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
 async function expectNoAxeViolations(page: Page) {
+  // Contrast is measured on the finished state, not part way through a fade.
+  await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'));
   const { violations, incomplete } = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
   // Incomplete results are elements axe could not judge, which are not passes.
   const problems = [...violations, ...incomplete].flatMap(({ id, nodes }) =>
@@ -30,11 +32,19 @@ async function expectNoAxeViolations(page: Page) {
  */
 async function isOverlayTextOverPage(page: Page, problem: { id: string; target: unknown; reasons: string[] }) {
   const [selector] = problem.target as string[];
-  return (
-    problem.id === 'color-contrast' &&
-    problem.reasons.every((reason) => reason.includes('partially overlaps')) &&
-    (await page.locator(selector).first().evaluate((element) => !!element.closest('.status-bar, dialog')))
-  );
+  if (problem.id !== 'color-contrast') return false;
+  if (problem.reasons.every((reason) => reason.includes('partially overlaps'))) {
+    return page.locator(selector).first().evaluate((element) => !!element.closest('.status-bar, dialog'));
+  }
+  // Text hidden under an open menu cannot be read, so its contrast does not apply.
+  if (problem.reasons.every((reason) => /overlapped|obscured/.test(reason))) {
+    return page.locator(selector).first().evaluate((element) => {
+      const menu = document.querySelector('[role="menu"]')?.getBoundingClientRect();
+      const area = element.getBoundingClientRect();
+      return !!menu && area.top < menu.bottom && area.bottom > menu.top && area.left < menu.right && area.right > menu.left;
+    });
+  }
+  return false;
 }
 
 /** The WCAG contrast ratio of an element's text against its layer's opaque background. */
@@ -62,6 +72,7 @@ async function addSampleNotes(page: Page) {
   await page.getByRole('combobox', { name: 'Column for On the board' }).selectOption({ label: 'To do' });
   await page.getByRole('button', { name: 'Move On the board' }).click();
   await expect(card(column(page, 'To do'), 'On the board')).toBeVisible();
+  await waitForAnimations(page);
 }
 
 const SCREEN_STATES: Record<string, (page: Page) => Promise<void>> = {
@@ -108,7 +119,53 @@ const SCREEN_STATES: Record<string, (page: Page) => Promise<void>> = {
   'a search with no results': async (page) => {
     await addSampleNotes(page);
     await page.getByLabel('Search notes').fill('nothing matches this');
-    await expect(page.getByText('No notes match your search.')).toBeVisible();
+    await expect(page.getByText('No notes match your search')).toBeVisible();
+  },
+  'priorities, due dates and coloured tags': async (page) => {
+    for (const [title, priority, dueDate, tags] of [
+      ['Urgent thing', 'High priority', '2020-01-01', 'work, home, urgent'],
+      ['Normal thing', 'Medium priority', '2099-01-01', 'errands, ideas, later'],
+      ['Small thing', 'Low priority', '', 'reading'],
+    ]) {
+      const form = page.getByRole('region', { name: 'Add a note' });
+      await form.getByLabel('Title').fill(title);
+      await form.getByLabel('Tags').fill(tags);
+      await form.getByLabel('Priority').selectOption({ label: priority });
+      await form.getByLabel('Due date').fill(dueDate);
+      await form.getByRole('button', { name: 'Add note' }).click();
+    }
+    await page.getByRole('combobox', { name: 'Column for Urgent thing' }).selectOption({ label: 'To do' });
+    await page.getByRole('button', { name: 'Move Urgent thing' }).click();
+    await expect(page.locator('.due-overdue').first()).toBeVisible();
+  },
+  'an open note menu': async (page) => {
+    await addSampleNotes(page);
+    await page.getByRole('button', { name: 'More actions for In the list' }).click();
+    await expect(page.getByRole('menu')).toBeVisible();
+  },
+  'an open column menu': async (page) => {
+    await page.getByRole('button', { name: 'More actions for column Done' }).click();
+    await expect(page.getByRole('menu')).toBeVisible();
+  },
+  'a tooltip': async (page) => {
+    await addSampleNotes(page);
+    await page.getByRole('button', { name: 'Edit In the list' }).hover();
+    await expect(page.getByRole('button', { name: 'Edit In the list' }).locator('.tooltip')).toBeVisible();
+  },
+  'renaming a note': async (page) => {
+    await addSampleNotes(page);
+    await page.getByRole('button', { name: 'More actions for In the list' }).click();
+    await page.getByRole('menuitem', { name: 'Rename' }).click();
+    await page.getByLabel('New title').fill('');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByText('Enter a title for the note.')).toBeVisible();
+  },
+  'open filters and a collapsed column': async (page) => {
+    await addSampleNotes(page);
+    await page.getByRole('button', { name: 'Filters' }).click();
+    await page.getByLabel('Priority', { exact: true }).selectOption({ label: 'High priority' });
+    await page.getByRole('button', { name: 'To do', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'To do', exact: true })).toHaveAttribute('aria-expanded', 'false');
   },
   'the unsaved changes prompt': async (page) => {
     await addSampleNotes(page);
@@ -214,6 +271,8 @@ test('interactive targets are at least 24 x 24 px (WCAG 2.5.8)', async ({ page }
 
   const undersized = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>('a, button, input:not([hidden]), select, textarea')]
+      // Controls inside closed sections are not rendered, so they have no size to check.
+      .filter((element) => element.getClientRects().length > 0)
       .filter((element) => {
         const { width, height } = element.getBoundingClientRect();
         return width < 24 || height < 24;
@@ -258,7 +317,9 @@ test.describe('keyboard', () => {
     await page.keyboard.press('Enter');
     await expect(card(column(page, 'To do'), 'Keyboard note')).toBeVisible();
 
-    await page.keyboard.press('Tab');
+    // The card's toolbar comes before the Column control: Edit, Delete, Pick up, More actions.
+    await page.keyboard.press('Shift+Tab', { delay: 0 });
+    for (let press = 0; press < 4; press++) await page.keyboard.press('Shift+Tab');
     await expect(page.getByRole('button', { name: 'Edit Keyboard note' }).first()).toBeFocused();
     await page.keyboard.press('Enter');
     await page.keyboard.type(' edited');

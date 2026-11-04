@@ -25,6 +25,20 @@ describe('export and import', () => {
   });
 });
 
+describe('files from earlier versions', () => {
+  it('gives notes without a priority or due date the defaults', () => {
+    const note = { ...sampleData().notes[0], priority: undefined, dueDate: undefined };
+    const [imported] = parseImport(JSON.stringify({ ...sampleData(), version: 1, notes: [note] })).notes;
+    expect(imported).toMatchObject({ priority: 'none', dueDate: null });
+  });
+
+  it('keeps a priority and due date that are present', () => {
+    const note = { ...sampleData().notes[0], priority: 'high', dueDate: '2026-11-04' };
+    const [imported] = parseImport(JSON.stringify({ ...sampleData(), version: 1, notes: [note] })).notes;
+    expect(imported).toMatchObject({ priority: 'high', dueDate: '2026-11-04' });
+  });
+});
+
 describe('invalid imports', () => {
   const validNote = sampleData().notes[0];
   const withNote = (changes: object) => JSON.stringify({ ...sampleData(), version: 1, notes: [{ ...validNote, ...changes }] });
@@ -42,6 +56,9 @@ describe('invalid imports', () => {
     ['a missing description', withNote({ description: undefined }), 'no description'],
     ['an unknown column', withNote({ columnId: 'nowhere' }), 'column that is not in the file'],
     ['missing times', withNote({ updatedAt: undefined }), 'created and updated times'],
+    ['an unknown priority', withNote({ priority: 'extreme' }), 'priority that is not'],
+    ['a due date that is not a date', withNote({ dueDate: '2026-02-30' }), 'not a real date'],
+    ['a due date in another format', withNote({ dueDate: '4/11/2026' }), 'not a real date'],
   ])('rejects %s', (_name, text, message) => {
     expect(() => parseImport(text)).toThrow(InvalidDataError);
     expect(() => parseImport(text)).toThrow(message);

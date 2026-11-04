@@ -1,19 +1,49 @@
-import { useEffect, useRef, useState } from 'react';
-import { Board, BOARD_HEADING_ID } from './components/Board';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
+import { Board, BOARD_HEADING_ID, columnMenuId, type ColumnActions } from './components/Board';
 import { Dialog } from './components/Dialog';
 import { DisplaySettings } from './components/DisplaySettings';
 import { EditNoteDialog } from './components/EditNoteDialog';
 import { HelpContent } from './components/HelpContent';
-import { moveButtonId, pickUpButtonId, PICK_UP_INSTRUCTIONS_ID, type NoteActions } from './components/NoteCard';
+import { MoonIcon } from './components/icons';
+import {
+  moreButtonId,
+  moveButtonId,
+  pickUpButtonId,
+  PICK_UP_INSTRUCTIONS_ID,
+  type NoteActions,
+} from './components/NoteCard';
 import { NoteForm } from './components/NoteForm';
 import { NoteList, NOTES_HEADING_ID } from './components/NoteList';
 import { StatusBar, STATUS_DISMISS_ID, type Message } from './components/StatusBar';
+import { todayIso } from './dates';
 import { formatCount } from './format';
-import { addColumn, addNote, deleteNote, isColumnNameTaken, moveNote, updateNote } from './notes';
-import { applyPreferences, loadPreferences, onDeviceThemeChange, savePreferences, type Preferences } from './preferences';
-import { loadData, onExternalChange, saveData } from './storage';
+import {
+  addColumn,
+  addNote,
+  deleteColumn,
+  deleteNote,
+  isColumnNameTaken,
+  moveColumn,
+  moveNote,
+  notesInColumn,
+  renameColumn,
+  updateNote,
+} from './notes';
+import {
+  applyPreferences,
+  loadPreferences,
+  messageTimeout,
+  onDeviceSettingsChange,
+  readDeviceSettings,
+  resolveTheme,
+  savePreferences,
+  type Preferences,
+} from './preferences';
+import { playSound } from './sounds';
+import { loadCollapsed, loadData, onExternalChange, saveCollapsed, saveData } from './storage';
 import { countReplacedNotes, InvalidDataError, MAX_IMPORT_BYTES, mergeImport, parseImport, serializeExport } from './transfer';
-import type { BoardData, HeldNote, Note, NoteDraft, NoteLocation } from './types';
+import type { BoardData, Column, HeldNote, Note, NoteDraft, NoteLocation, ReorderTarget } from './types';
 
 const APP_TITLE_ID = 'app-title';
 const ADD_NOTE_HEADING_ID = 'add-note-heading';
@@ -22,6 +52,7 @@ const MAX_UNDO_STEPS = 20;
 type OpenDialog =
   | { kind: 'edit'; note: Note }
   | { kind: 'delete'; note: Note; location: NoteLocation }
+  | { kind: 'delete-column'; column: Column }
   | { kind: 'import'; incoming: BoardData; fileName: string; replacedCount: number }
   | { kind: 'settings' }
   | { kind: 'help' };
@@ -29,6 +60,15 @@ type OpenDialog =
 interface UndoStep {
   data: BoardData;
   description: string;
+}
+
+/** Animates a change to the board with the browser's view transitions, when animation is on. */
+function withMotion(update: () => void) {
+  if (document.documentElement.dataset.motion === 'full' && document.startViewTransition) {
+    document.startViewTransition(() => flushSync(update));
+  } else {
+    update();
+  }
 }
 
 export default function App() {
@@ -42,8 +82,13 @@ export default function App() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [held, setHeld] = useState<HeldNote | null>(null);
   const [preferences, setPreferences] = useState(loadPreferences);
+  const [collapsedIds, setCollapsedIds] = useState(loadCollapsed);
+  // Re-renders when the device's colour, contrast or motion settings change.
+  const deviceSettings = useSyncExternalStore(onDeviceSettingsChange, readDeviceSettings);
   const focusAfterRender = useRef<string | null>(null);
   const lastUndoStep = undoSteps.at(-1);
+  const today = todayIso();
+  const isDark = resolveTheme(preferences.theme) !== 'light';
 
   useEffect(() => {
     if (focusAfterRender.current) {
@@ -66,11 +111,11 @@ export default function App() {
 
   useEffect(() => {
     applyPreferences(preferences);
-    return onDeviceThemeChange(() => applyPreferences(preferences));
-  }, [preferences]);
+  }, [preferences, deviceSettings]);
 
   function notify(kind: Message['kind'], text: string, undoable = false) {
     setMessage((previous) => ({ kind, text, undoable, sequence: (previous?.sequence ?? 0) + 1 }));
+    playSound(kind);
   }
 
   /** Saves first, so the screen never shows a change that a refresh would lose. */
@@ -116,45 +161,91 @@ export default function App() {
     return saved;
   }
 
+  function handleRename(note: Note, title: string): string | null {
+    const trimmed = title.trim();
+    if (!trimmed) return 'Enter a title for the note.';
+    if (trimmed === note.title) return null;
+    const saved = applyChange(updateNote(data, note.id, { ...note, title: trimmed }), `Renamed "${note.title}" to "${trimmed}".`);
+    return saved ? null : 'The new title was not saved. Try again.';
+  }
+
   function handleDelete(note: Note, location: NoteLocation) {
     setOpenDialog(null);
     focusAfterRender.current = location === 'board' ? BOARD_HEADING_ID : NOTES_HEADING_ID;
     applyChange(deleteNote(data, note.id), `Note "${note.title}" deleted.`);
   }
 
-  function placeNote(note: Note, columnId: string | null) {
-    if (note.columnId === columnId) {
-      notify('info', `"${note.title}" is already ${columnId ? `in ${columnName(columnId)}` : 'off the board'}.`);
-    } else {
-      const description = columnId ? `Moved "${note.title}" to ${columnName(columnId)}.` : `Removed "${note.title}" from the board.`;
-      applyChange(moveNote(data, note.id, columnId), description);
+  /**
+   * Puts a note in a column, at a position among its other notes, or at the end.
+   * Moving a card remounts it, so focusId names the control to focus afterwards.
+   */
+  function placeNote(note: Note, columnId: string | null, index?: number, focusId?: string) {
+    const columnNotes = notesInColumn(data, columnId);
+    const currentIndex = columnNotes.findIndex((candidate) => candidate.id === note.id);
+    const otherCount = columnNotes.length - (currentIndex >= 0 ? 1 : 0);
+    const isSameColumn = note.columnId === columnId;
+
+    if (isSameColumn && (columnId === null || index === undefined || index === currentIndex)) {
+      notify('info', `"${note.title}" is already ${columnId ? `there in ${columnName(columnId)}` : 'off the board'}.`);
+      return;
     }
+    const description = !columnId
+      ? `Removed "${note.title}" from the board.`
+      : isSameColumn
+        ? `Moved "${note.title}" to position ${(index ?? otherCount) + 1} of ${otherCount + 1} in ${columnName(columnId)}.`
+        : `Moved "${note.title}" to ${columnName(columnId)}.`;
+    // The focus target is set inside the update. Set earlier, a render in between could use it up.
+    withMotion(() => {
+      if (focusId) focusAfterRender.current = focusId;
+      applyChange(moveNote(data, note.id, columnId, index), description);
+    });
   }
 
-  function handleDropNote(noteId: string, columnId: string) {
-    const note = data.notes.find((candidate) => candidate.id === noteId);
-    if (note) placeNote(note, columnId);
+  function handleReorder(note: Note, target: ReorderTarget) {
+    const columnNotes = notesInColumn(data, note.columnId);
+    const current = columnNotes.findIndex((candidate) => candidate.id === note.id);
+    const index = { up: current - 1, down: current + 1, top: 0, bottom: columnNotes.length - 1 }[target];
+    placeNote(note, note.columnId, index, moreButtonId('board', note.id));
   }
 
   function handlePickUpOrDrop(note: Note, location: NoteLocation) {
     if (held?.noteId === note.id && held.location === location) {
       setHeld(null);
-      // A move between columns remounts the board card, which would lose focus.
-      if (location === 'board') focusAfterRender.current = pickUpButtonId('board', note.id);
-      placeNote(note, held.targetColumnId);
+      const focusId = location === 'board' ? pickUpButtonId('board', note.id) : undefined;
+      placeNote(note, held.targetColumnId, held.targetIndex ?? undefined, focusId);
     } else {
-      setHeld({ noteId: note.id, location, targetColumnId: note.columnId });
-      notify('info', `Picked up "${note.title}". Press the arrow keys to choose a column, Space to drop, or Esc to cancel.`);
+      const index = notesInColumn(data, note.columnId).findIndex((candidate) => candidate.id === note.id);
+      setHeld({ noteId: note.id, location, targetColumnId: note.columnId, targetIndex: index >= 0 ? index : null });
+      notify(
+        'info',
+        `Picked up "${note.title}". Press Left or Right to choose a column, Up or Down to choose a place, Space to drop, or Esc to cancel.`,
+      );
     }
   }
 
-  function handleHeldStep(step: number) {
+  function handleHeldColumnStep(step: number) {
     if (!held) return;
     const currentIndex = data.columns.findIndex((column) => column.id === held.targetColumnId);
     const index = Math.min(Math.max(currentIndex + step, 0), data.columns.length - 1);
     const column = data.columns[index];
-    setHeld({ ...held, targetColumnId: column.id });
+    const columnNotes = notesInColumn(data, column.id);
+    const ownIndex = columnNotes.findIndex((note) => note.id === held.noteId);
+    // Back in its own column, the note returns to its own place. Elsewhere it goes last.
+    const targetIndex = ownIndex >= 0 ? ownIndex : columnNotes.length;
+    setHeld({ ...held, targetColumnId: column.id, targetIndex });
     notify('info', `Over ${column.name}, column ${index + 1} of ${data.columns.length}. Press Space to drop here.`);
+  }
+
+  function handleHeldPositionStep(step: number) {
+    if (!held) return;
+    if (!held.targetColumnId) {
+      notify('info', 'Choose a column first, with the Left and Right arrow keys.');
+      return;
+    }
+    const others = notesInColumn(data, held.targetColumnId).filter((note) => note.id !== held.noteId);
+    const targetIndex = Math.min(Math.max((held.targetIndex ?? others.length) + step, 0), others.length);
+    setHeld({ ...held, targetIndex });
+    notify('info', `Position ${targetIndex + 1} of ${others.length + 1} in ${columnName(held.targetColumnId)}.`);
   }
 
   function handleHeldCancel() {
@@ -162,12 +253,52 @@ export default function App() {
     notify('info', 'Note put back. Nothing has moved.');
   }
 
-  function handleAddColumn(name: string): string | null {
-    const trimmedName = name.trim();
-    if (!trimmedName) return 'Enter a name for the column.';
-    if (isColumnNameTaken(data, trimmedName)) return `There is already a column called "${trimmedName}". Enter a different name.`;
-    const saved = applyChange(addColumn(data, trimmedName), `Column "${trimmedName}" added.`);
-    return saved ? null : 'The column was not saved. Try again.';
+  function checkColumnName(name: string, exceptId?: string): string | null {
+    if (!name) return 'Enter a name for the column.';
+    if (isColumnNameTaken(data, name, exceptId)) return `There is already a column called "${name}". Enter a different name.`;
+    return null;
+  }
+
+  const columnActions: ColumnActions = {
+    onAdd: (name) => {
+      const trimmed = name.trim();
+      const problem = checkColumnName(trimmed);
+      if (problem) return problem;
+      return applyChange(addColumn(data, trimmed), `Column "${trimmed}" added.`) ? null : 'The column was not saved. Try again.';
+    },
+    onRename: (column, name) => {
+      const trimmed = name.trim();
+      if (trimmed === column.name) return null;
+      const problem = checkColumnName(trimmed, column.id);
+      if (problem) return problem;
+      const saved = applyChange(renameColumn(data, column.id, trimmed), `Renamed column "${column.name}" to "${trimmed}".`);
+      return saved ? null : 'The new name was not saved. Try again.';
+    },
+    onMove: (column, step) => {
+      withMotion(() => {
+        focusAfterRender.current = columnMenuId(column.id);
+        applyChange(moveColumn(data, column.id, step), `Moved column "${column.name}" ${step < 0 ? 'left' : 'right'}.`);
+      });
+    },
+    onDelete: (column) => setOpenDialog({ kind: 'delete-column', column }),
+    onToggleCollapsed: (columnId) => {
+      const next = new Set(collapsedIds);
+      if (!next.delete(columnId)) next.add(columnId);
+      setCollapsedIds(next);
+      saveCollapsed(next);
+    },
+    onDropNote: (noteId, columnId, index) => {
+      const note = data.notes.find((candidate) => candidate.id === noteId);
+      if (note) placeNote(note, columnId, index);
+    },
+  };
+
+  function handleDeleteColumn(column: Column) {
+    setOpenDialog(null);
+    focusAfterRender.current = BOARD_HEADING_ID;
+    const count = notesInColumn(data, column.id).length;
+    const notesText = count > 0 ? ` ${formatCount(count, 'note')} taken off the board.` : '';
+    applyChange(deleteColumn(data, column.id), `Column "${column.name}" deleted.${notesText}`);
   }
 
   function handleExport() {
@@ -175,7 +306,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `notes-board-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `notes-board-${today}.json`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     notify('success', `Exported ${formatCount(data.notes.length, 'note')} to ${link.download}.`);
@@ -217,16 +348,16 @@ export default function App() {
     onEdit: (note) => setOpenDialog({ kind: 'edit', note }),
     onDelete: (note, location) => setOpenDialog({ kind: 'delete', note, location }),
     onMove: (note, columnId, location) => {
-      // A move between columns remounts the board card, which would lose focus.
-      if (location === 'board') {
-        focusAfterRender.current = moveButtonId(columnId ? 'board' : 'list', note.id);
-      }
-      placeNote(note, columnId);
+      const focusId = location === 'board' ? moveButtonId(columnId ? 'board' : 'list', note.id) : undefined;
+      placeNote(note, columnId, undefined, focusId);
     },
+    onRename: handleRename,
+    onReorder: handleReorder,
     onDragStart: setDraggingId,
     onDragEnd: () => setDraggingId(null),
     onPickUpOrDrop: handlePickUpOrDrop,
-    onHeldStep: handleHeldStep,
+    onHeldColumnStep: handleHeldColumnStep,
+    onHeldPositionStep: handleHeldPositionStep,
     onHeldCancel: handleHeldCancel,
   };
 
@@ -252,6 +383,15 @@ export default function App() {
             Undo
             {lastUndoStep && <span className="visually-hidden">: {lastUndoStep.description}</span>}
           </button>
+          <button
+            type="button"
+            className="button button-with-icon"
+            aria-pressed={isDark}
+            onClick={() => handleChangePreferences({ ...preferences, theme: isDark ? 'light' : 'dark' })}
+          >
+            <MoonIcon />
+            Dark mode
+          </button>
           <button type="button" className="button" onClick={() => setOpenDialog({ kind: 'settings' })}>
             Display settings
           </button>
@@ -262,7 +402,8 @@ export default function App() {
       </header>
 
       <p id={PICK_UP_INSTRUCTIONS_ID} hidden>
-        After picking up, use the arrow keys to choose a column, Space to drop, and Esc to cancel.
+        After picking up, use Left and Right to choose a column, Up and Down to choose a place, Space to drop, and Esc to
+        cancel.
       </p>
 
       <main>
@@ -279,6 +420,7 @@ export default function App() {
               <NoteList
                 notes={data.notes}
                 columns={data.columns}
+                today={today}
                 draggingId={draggingId}
                 held={held}
                 actions={actions}
@@ -290,23 +432,26 @@ export default function App() {
             <Board
               notes={data.notes}
               columns={data.columns}
+              collapsedIds={collapsedIds}
+              today={today}
               draggingId={draggingId}
               held={held}
               actions={actions}
-              onDropNote={handleDropNote}
-              onAddColumn={handleAddColumn}
+              columnActions={columnActions}
             />
           </div>
         </div>
 
         <StatusBar
           message={message}
+          timeoutMs={messageTimeout(preferences)}
           onUndo={() => {
             // The status bar's Undo button goes away with this message.
             focusAfterRender.current = STATUS_DISMISS_ID;
             handleUndo();
           }}
           onDismiss={handleDismissMessage}
+          onTimeout={() => setMessage(null)}
         />
       </main>
 
@@ -337,6 +482,35 @@ export default function App() {
               </div>
             </>
           )}
+        </Dialog>
+      )}
+
+      {openDialog?.kind === 'delete-column' && (
+        <Dialog title="Delete column?" alert onClose={() => setOpenDialog(null)}>
+          {({ describedBy }) => {
+            const count = notesInColumn(data, openDialog.column.id).length;
+            return (
+              <>
+                <p id={describedBy}>
+                  The column "{openDialog.column.name}" will be deleted.
+                  {count > 0 && ` Its ${formatCount(count, 'note')} will be taken off the board, not deleted.`} You can
+                  undo this until you close this page.
+                </p>
+                <div className="button-row">
+                  <button type="button" className="button" data-autofocus onClick={() => setOpenDialog(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-danger"
+                    onClick={() => handleDeleteColumn(openDialog.column)}
+                  >
+                    Delete column
+                  </button>
+                </div>
+              </>
+            );
+          }}
         </Dialog>
       )}
 
