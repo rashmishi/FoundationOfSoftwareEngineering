@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+test-results
+playwright-report
+.git
+.claude
+docs
+demo.mp4
+e2e

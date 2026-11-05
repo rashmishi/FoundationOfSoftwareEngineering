@@ -1,0 +1,8 @@
+{
+  "format": "notes-kanban",
+  "version": 1,
+  "notes": [
+    { "id": "a", "title": "Fine note" },
+    { "id": "b", "description": "This note has no title" }
+  ]
+}

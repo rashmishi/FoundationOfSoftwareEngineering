@@ -1,0 +1,8 @@
+# Optional convenience wrapper: `docker compose up -d --build` builds and runs the single image.
+services:
+  notes-kanban:
+    build: .
+    image: notes-kanban:latest
+    ports:
+      - "${PORT:-8080}:80"
+    restart: unless-stopped
