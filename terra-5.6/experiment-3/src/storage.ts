@@ -1,0 +1,10 @@
+import type { AppData, Column, Note, Priority } from './types';
+export const STORAGE_KEY = 'notes-kanban:v1';
+export const defaults = (): AppData => ({ version:1, notes:[], columns:[['inbox','Inbox'],['progress','In Progress'],['done','Done']].map(([id,name]) => ({id,name,collapsed:false,isDefault:true})) });
+const priorities: Priority[] = ['low','medium','high'];
+const isNote = (v: unknown): v is Note => { const n=v as Note; return !!n && typeof n.id==='string' && typeof n.title==='string' && typeof n.description==='string' && Array.isArray(n.tags) && n.tags.every(t=>typeof t==='string') && priorities.includes(n.priority) && (n.dueDate===null || typeof n.dueDate==='string') && (n.columnId===null || typeof n.columnId==='string') && typeof n.order==='number' && typeof n.createdAt==='string' && typeof n.updatedAt==='string'; };
+const isColumn = (v: unknown): v is Column => { const c=v as Column; return !!c && typeof c.id==='string' && typeof c.name==='string' && typeof c.collapsed==='boolean' && typeof c.isDefault==='boolean'; };
+export const isAppData = (v: unknown): v is AppData => { const d=v as AppData; return !!d && d.version===1 && Array.isArray(d.notes) && d.notes.every(isNote) && Array.isArray(d.columns) && d.columns.every(isColumn); };
+export const loadData = (): AppData => { try { const raw=localStorage.getItem(STORAGE_KEY); const data=raw ? JSON.parse(raw) : null; return isAppData(data) ? data : defaults(); } catch { return defaults(); } };
+export const saveData = (data: AppData) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+export const validateImport = (raw: unknown): AppData => { if (!isAppData(raw)) throw new Error('This file is not a valid Notes Kanban export.'); return raw; };
