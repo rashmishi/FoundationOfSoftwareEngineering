@@ -1,0 +1,42 @@
+{
+  "repo": "https://github.com/rashmishi/FoundationOfSoftwareEngineering",
+  "experiments": {
+    "1": "User stories plus the extended feature list, with requirements, design, implementation and testing documents.",
+    "2": "The same app, prompted to follow accessibility guidelines (WCAG 2.2 AA).",
+    "3": "The same app, with an accessibility reviewer gating every development phase."
+  },
+  "models": [
+    {
+      "name": "Opus 5.5",
+      "apps": [
+        { "experiment": "1", "source": "opus-5.5/experiment-1", "path": "opus-5.5/experiment-1" },
+        { "experiment": "2", "source": "opus-5.5/experiment-2", "path": "opus-5.5/experiment-2" },
+        { "experiment": "3", "source": "opus-5.5/experiment-3", "path": "opus-5.5/experiment-3" }
+      ]
+    },
+    {
+      "name": "Luna 6",
+      "apps": [
+        { "experiment": "1", "source": "luna-6/experiment-1", "path": "luna-6/experiment-1" },
+        { "experiment": "2", "source": "luna-6/experiment-2", "path": "luna-6/experiment-2" },
+        { "experiment": "3", "source": "luna-6/experiment-3", "path": "luna-6/experiment-3" }
+      ]
+    },
+    {
+      "name": "Luna 5.6",
+      "apps": [
+        { "experiment": "1", "source": "luna-5.6/experiment-1", "path": "luna-5.6/experiment-1" },
+        { "experiment": "2", "source": "luna-5.6/experiment-2", "path": "luna-5.6/experiment-2" },
+        { "experiment": "3", "source": "luna-5.6/experiment-3", "path": "luna-5.6/experiment-3" }
+      ]
+    },
+    {
+      "name": "Terra 5.6",
+      "apps": [
+        { "experiment": "1", "source": "terra-5.6/experiment-1", "path": "terra-5.6/experiment-1" },
+        { "experiment": "2", "source": "terra-5.6/experiment-2", "path": "terra-5.6/experiment-2" },
+        { "experiment": "3", "source": "terra-5.6/experiment-3", "path": "terra-5.6/experiment-3" }
+      ]
+    }
+  ]
+}
