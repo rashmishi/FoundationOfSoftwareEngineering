@@ -42,6 +42,7 @@ for (const model of manifest.models) {
       if (ci || !existsSync(join(src, 'node_modules'))) run('npm ci --no-audit --no-fund');
       // Relative base so the app works from any sub-path on github.io.
       run(`npm run build -- --base=./ --outDir="${out}" --emptyOutDir`);
+      scopeStorage(out, app.path);
       app.built = true;
     } catch {
       app.built = false;
@@ -59,6 +60,19 @@ console.log(`\n✔ Hub written to ${join(site, 'index.html')}`);
 if (failed.length) {
   console.error(`\n${failed.length} app(s) failed to build:\n  ${failed.join('\n  ')}`);
   if (ci) process.exit(1);
+}
+
+// All apps share one origin on GitHub Pages, so give each its own storage
+// namespace by loading hub/storage-scope.js before the app's own scripts.
+function scopeStorage(out, scope) {
+  const shim = readFileSync(join(hubDir, 'storage-scope.js'), 'utf8').replaceAll('__SCOPE__', JSON.stringify(scope));
+  writeFileSync(join(out, 'storage-scope.js'), shim);
+  const indexPath = join(out, 'index.html');
+  const html = readFileSync(indexPath, 'utf8');
+  const tag = '<script src="./storage-scope.js"></script>';
+  // Some apps' index.html has no <head>; a leading script still runs first.
+  const patched = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + tag) : tag + html;
+  writeFileSync(indexPath, patched);
 }
 
 function readTitle(src) {
@@ -149,7 +163,7 @@ function renderHub({ repo, experiments, models }) {
   </main>
 
   <footer class="wrap footer">
-    <p>Each app stores its notes in your browser's local storage, which is shared by all apps on this site. <a href="${esc(repo)}">View the repository on GitHub</a>.</p>
+    <p>Each app keeps its notes in your browser's local storage, separately from the other apps. <a href="${esc(repo)}">View the repository on GitHub</a>.</p>
   </footer>
 </body>
 </html>
