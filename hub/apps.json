@@ -15,6 +15,14 @@
       ]
     },
     {
+      "name": "Sonnet 5.5",
+      "apps": [
+        { "experiment": "1", "source": "sonnet-5.5/experiment-1", "path": "sonnet-5.5/experiment-1" },
+        { "experiment": "2", "source": "sonnet-5.5/experiment-2", "path": "sonnet-5.5/experiment-2" },
+        { "experiment": "3", "source": "sonnet-5.5/experiment-3", "path": "sonnet-5.5/experiment-3" }
+      ]
+    },
+    {
       "name": "Luna 6",
       "apps": [
         { "experiment": "1", "source": "luna-6/experiment-1", "path": "luna-6/experiment-1" },
