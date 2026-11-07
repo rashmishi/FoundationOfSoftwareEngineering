@@ -1,0 +1,17 @@
+{
+  "app": "notes-kanban",
+  "version": 1,
+  "exportedAt": "2026-01-01T09:00:00.000Z",
+  "columns": [
+    { "id": "col_todo", "name": "To Do", "collapsed": false, "noteIds": ["sample_1", "sample_2"] },
+    { "id": "col_doing", "name": "In Progress", "collapsed": false, "noteIds": ["sample_3"] },
+    { "id": "col_done", "name": "Done", "collapsed": false, "noteIds": ["sample_4"] }
+  ],
+  "notes": [
+    { "id": "sample_1", "title": "Plan the sprint", "description": "Pick the stories for next week and size them.", "tags": ["planning", "work"], "priority": "high", "dueDate": "2020-01-15", "createdAt": "2026-01-01T09:00:00.000Z" },
+    { "id": "sample_2", "title": "Book dentist", "description": "Call before noon.", "tags": ["health"], "priority": "low", "dueDate": "2099-06-01", "createdAt": "2026-01-01T09:01:00.000Z" },
+    { "id": "sample_3", "title": "Write the report", "description": "Quarterly summary for the team.", "tags": ["work", "writing"], "priority": "medium", "dueDate": "", "createdAt": "2026-01-01T09:02:00.000Z" },
+    { "id": "sample_4", "title": "Buy groceries", "description": "Milk, eggs, bread.", "tags": ["home"], "priority": "low", "dueDate": "", "createdAt": "2026-01-01T09:03:00.000Z" },
+    { "id": "sample_5", "title": "Read a chapter", "description": "", "tags": ["reading"], "priority": "medium", "dueDate": "", "createdAt": "2026-01-01T09:04:00.000Z" }
+  ]
+}

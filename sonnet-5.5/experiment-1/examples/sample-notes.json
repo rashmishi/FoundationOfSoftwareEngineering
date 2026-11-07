@@ -1,0 +1,59 @@
+{
+  "app": "notes-kanban",
+  "version": 1,
+  "columns": [
+    { "id": "col-todo", "name": "To Do", "collapsed": false, "done": false },
+    { "id": "col-doing", "name": "In Progress", "collapsed": false, "done": false },
+    { "id": "col-done", "name": "Done", "collapsed": false, "done": true }
+  ],
+  "notes": [
+    {
+      "id": "sample-1",
+      "title": "Prepare the project demo",
+      "description": "Walk through notes, tags, the board and import/export.",
+      "tags": ["demo", "presentation"],
+      "priority": "high",
+      "dueDate": "2020-01-31",
+      "columnId": "col-doing",
+      "order": 0,
+      "createdAt": "2026-01-01T09:00:00.000Z",
+      "updatedAt": "2026-01-01T09:00:00.000Z"
+    },
+    {
+      "id": "sample-2",
+      "title": "Write the test plan",
+      "description": "Cover every acceptance condition.",
+      "tags": ["testing"],
+      "priority": "medium",
+      "dueDate": null,
+      "columnId": "col-todo",
+      "order": 0,
+      "createdAt": "2026-01-02T09:00:00.000Z",
+      "updatedAt": "2026-01-02T09:00:00.000Z"
+    },
+    {
+      "id": "sample-3",
+      "title": "Set up the Docker image",
+      "description": "",
+      "tags": ["devops", "docker"],
+      "priority": "low",
+      "dueDate": null,
+      "columnId": "col-done",
+      "order": 0,
+      "createdAt": "2026-01-03T09:00:00.000Z",
+      "updatedAt": "2026-01-03T09:00:00.000Z"
+    },
+    {
+      "id": "sample-4",
+      "title": "A note that is not on the board yet",
+      "description": "Drag me onto a column.",
+      "tags": [],
+      "priority": "medium",
+      "dueDate": null,
+      "columnId": null,
+      "order": 0,
+      "createdAt": "2026-01-04T09:00:00.000Z",
+      "updatedAt": "2026-01-04T09:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "app": "notes-board",
+  "version": 1,
+  "exportedAt": "2026-11-06T12:00:00.000Z",
+  "columns": [
+    { "id": "col-todo", "name": "To do", "collapsed": false, "noteIds": ["sample-1", "sample-2", "sample-3"] },
+    { "id": "col-doing", "name": "In progress", "collapsed": false, "noteIds": ["sample-4"] },
+    { "id": "col-done", "name": "Done", "collapsed": false, "noteIds": ["sample-5"] },
+    { "id": "col-review", "name": "Review", "collapsed": false, "noteIds": ["sample-6"] }
+  ],
+  "notes": [
+    {
+      "id": "sample-1",
+      "title": "Plan the sprint review",
+      "description": "Collect the demo items from each team and agree the order.",
+      "tags": ["meeting", "planning"],
+      "priority": "high",
+      "dueDate": "2026-01-15",
+      "columnId": "col-todo",
+      "createdAt": "2026-01-02T09:00:00.000Z",
+      "updatedAt": "2026-01-02T09:00:00.000Z"
+    },
+    {
+      "id": "sample-2",
+      "title": "Book the conference room",
+      "description": "Room for 12 people with a projector.",
+      "tags": ["meeting", "logistics"],
+      "priority": "medium",
+      "dueDate": "2099-12-31",
+      "columnId": "col-todo",
+      "createdAt": "2026-01-03T09:00:00.000Z",
+      "updatedAt": "2026-01-03T09:00:00.000Z"
+    },
+    {
+      "id": "sample-3",
+      "title": "Reply to the accessibility audit",
+      "description": "Answer the three open questions about keyboard focus.\nAttach the updated screenshots.",
+      "tags": ["accessibility", "urgent"],
+      "priority": "high",
+      "dueDate": "",
+      "columnId": "col-todo",
+      "createdAt": "2026-01-04T09:00:00.000Z",
+      "updatedAt": "2026-01-04T09:00:00.000Z"
+    },
+    {
+      "id": "sample-4",
+      "title": "Write the release notes",
+      "description": "Summarise the changes for version 2.",
+      "tags": ["docs"],
+      "priority": "low",
+      "dueDate": "2099-06-01",
+      "columnId": "col-doing",
+      "createdAt": "2026-01-05T09:00:00.000Z",
+      "updatedAt": "2026-01-05T09:00:00.000Z"
+    },
+    {
+      "id": "sample-5",
+      "title": "Fix the login typo",
+      "description": "",
+      "tags": ["bug"],
+      "priority": "none",
+      "dueDate": "",
+      "columnId": "col-done",
+      "createdAt": "2026-01-06T09:00:00.000Z",
+      "updatedAt": "2026-01-06T09:00:00.000Z"
+    },
+    {
+      "id": "sample-6",
+      "title": "Review the colour palette",
+      "description": "Check contrast of every tag colour in the dark theme.",
+      "tags": ["accessibility", "design"],
+      "priority": "medium",
+      "dueDate": "",
+      "columnId": "col-review",
+      "createdAt": "2026-01-07T09:00:00.000Z",
+      "updatedAt": "2026-01-07T09:00:00.000Z"
+    },
+    {
+      "id": "sample-7",
+      "title": "Tidy up the backlog",
+      "description": "Not on the board yet. Drag me onto a column!",
+      "tags": [],
+      "priority": "none",
+      "dueDate": "",
+      "columnId": null,
+      "createdAt": "2026-01-08T09:00:00.000Z",
+      "updatedAt": "2026-01-08T09:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "notes": [
+    { "title": "This note is fine" },
+    { "description": "This note has no title, so the whole file is rejected." }
+  ]
+}
