@@ -152,8 +152,10 @@ h2 {
   flex: none;
   display: grid;
   place-items: center;
-  width: 32px;
+  min-width: 32px;
   height: 32px;
+  padding: 0 6px;
+  white-space: nowrap;
   border-radius: 8px;
   background: var(--accent-soft);
   color: var(--text);
@@ -170,13 +172,25 @@ h2 {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 
-@media (max-width: 820px) {
+@media (min-width: 640px) {
   .grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Wide enough for one column per experiment: pin each card to its
+   experiment's column so rows line up across models. */
+@media (min-width: 1000px) {
+  .grid {
+    grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+  }
+
+  .card {
+    grid-column: var(--col);
   }
 }
 

@@ -99,10 +99,17 @@ function esc(s) {
 function renderHub({ repo, experiments, models }) {
   const tree = (p) => `${repo}/tree/master/${p}`;
   const blob = (p) => `${repo}/blob/master/${p}`;
-  const expIds = Object.keys(experiments);
+  const label = (id) => experiments.find((e) => e.id === id)?.label ?? id;
+  // Each experiment gets a fixed grid column so the same experiment lines up
+  // across models, even when a model has no build for some experiment.
+  const column = (id) => {
+    const i = experiments.findIndex((e) => e.id === id);
+    if (i < 0) throw new Error(`apps.json: unknown experiment "${id}"`);
+    return i + 1;
+  };
 
   const card = (model, app) => {
-    const ctx = `${model.name}, experiment ${app.experiment}`;
+    const ctx = `${model.name}, experiment ${label(app.experiment)}`;
     const links = [
       `<a href="${esc(tree(app.source))}">Source<span class="vh"> for ${esc(ctx)}</span></a>`,
       app.docs && `<a href="${esc(tree(app.source + '/docs'))}">Docs<span class="vh"> for ${esc(ctx)}</span></a>`,
@@ -112,9 +119,9 @@ function renderHub({ repo, experiments, models }) {
       ? `<a class="open" href="./${esc(app.path)}/">Open app<span class="vh">: ${esc(app.title)} (${esc(ctx)})</span></a>`
       : `<p class="unavailable">Not available in this deployment</p>`;
     return `
-          <li class="card">
-            <p class="exp-tag" aria-hidden="true">Experiment ${esc(app.experiment)}</p>
-            <h3><span class="vh">Experiment ${esc(app.experiment)}: </span>${esc(app.title)}</h3>
+          <li class="card" style="--col: ${column(app.experiment)}">
+            <p class="exp-tag" aria-hidden="true">Experiment ${esc(label(app.experiment))}</p>
+            <h3><span class="vh">Experiment ${esc(label(app.experiment))}: </span>${esc(app.title)}</h3>
             ${open}
             <ul class="links" aria-label="Links for ${esc(ctx)}">${links.map((l) => `<li>${l}</li>`).join('')}</ul>
           </li>`;
@@ -128,7 +135,7 @@ function renderHub({ repo, experiments, models }) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Notes Kanban Experiments</title>
-  <meta name="description" content="${total} React notes and Kanban apps built by different AI models under three prompting experiments." />
+  <meta name="description" content="${total} React notes and Kanban apps built by ${models.length} AI models under ${experiments.length} prompting experiments." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f5bd3'/%3E%3Crect x='6' y='7' width='5.5' height='18' rx='1.5' fill='white'/%3E%3Crect x='13.25' y='7' width='5.5' height='12' rx='1.5' fill='white'/%3E%3Crect x='20.5' y='7' width='5.5' height='15' rx='1.5' fill='white'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="./hub.css" />
 </head>
@@ -138,16 +145,16 @@ function renderHub({ repo, experiments, models }) {
     <div class="wrap">
       <p class="eyebrow">Foundations of Software Engineering</p>
       <h1>Notes Kanban Experiments</h1>
-      <p class="lede">The same notes and Kanban board app, built ${total} times: by ${models.length} AI models across ${expIds.length} prompting experiments. Open any build to compare them side by side.</p>
+      <p class="lede">The same notes and Kanban board app, built ${total} times: by ${models.length} AI models across ${experiments.length} prompting experiments. Open any build to compare them side by side.</p>
     </div>
   </header>
 
   <main id="main" class="wrap">
     <section aria-labelledby="exp-heading" class="experiments">
       <h2 id="exp-heading">The experiments</h2>
-      <ol class="exp-list">${expIds
-        .map((id) => `
-        <li><span class="num" aria-hidden="true">${esc(id)}</span><div><h3>Experiment ${esc(id)}</h3><p>${esc(experiments[id])}</p></div></li>`)
+      <ol class="exp-list">${experiments
+        .map((e) => `
+        <li><span class="num" aria-hidden="true">${esc(label(e.id))}</span><div><h3>Experiment ${esc(label(e.id))}</h3><p>${esc(e.description)}</p></div></li>`)
         .join('')}
       </ol>
     </section>
@@ -156,7 +163,10 @@ function renderHub({ repo, experiments, models }) {
       .map((model, i) => `
     <section aria-labelledby="model-${i}" class="model">
       <h2 id="model-${i}">${esc(model.name)}</h2>
-      <ul class="grid">${model.apps.map((app) => card(model, app)).join('')}
+      <ul class="grid" style="--cols: ${experiments.length}">${[...model.apps]
+        .sort((a, b) => column(a.experiment) - column(b.experiment))
+        .map((app) => card(model, app))
+        .join('')}
       </ul>
     </section>`)
       .join('')}
